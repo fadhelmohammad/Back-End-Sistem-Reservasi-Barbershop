@@ -19,9 +19,9 @@ router.get("/my-reservations", authMiddleware, getUserReservations);
 router.patch("/:id/cancel", authMiddleware, cancelReservation);
 
 // Admin routes
-router.get("/", authMiddleware, checkRole('ADMIN'), getAllReservations);
+router.get("/", authMiddleware, getAllReservations);
 router.get("/:id", authMiddleware, getReservationById);
-router.patch("/:id/status", authMiddleware, checkRole('ADMIN'), updateReservationStatus);
-router.delete("/:id", authMiddleware, checkRole('ADMIN'), deleteReservation);
+router.patch("/:id/status", authMiddleware, checkRole ('admin'), updateReservationStatus);
+router.delete("/:id", authMiddleware, deleteReservation);
 
 module.exports = router;

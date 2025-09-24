@@ -47,7 +47,19 @@ const createReservation = async (req, res) => {
     res.status(201).json({
       success: true,
       message: "Reservation created successfully",
-      data: savedReservation
+      data: {
+        schedule: {
+          barber: {
+            name: savedReservation.schedule.barber.name,
+            phone: savedReservation.schedule.barber.phone
+          },
+          scheduled_time: savedReservation.schedule.scheduled_time
+        },
+        status: savedReservation.status,
+        customer: savedReservation.customer,
+        _id: savedReservation._id,
+        createdAt: savedReservation.createdAt
+      }
     });
 
   } catch (error) {

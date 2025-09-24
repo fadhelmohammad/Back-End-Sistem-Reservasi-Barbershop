@@ -10,7 +10,7 @@ const {
 const { authMiddleware, checkRole } = require("../middleware/authMiddleware");
 
 
-router.post("/",authMiddleware, checkRole('cashier','ADMIN'), createSchedule);
+router.post("/",authMiddleware, checkRole('cashier','admin'), createSchedule);
 router.get("/", authMiddleware, getAllSchedules);
 router.get("/available", authMiddleware, getAvailableSchedules);
 router.get("/:id", authMiddleware, getScheduleById);

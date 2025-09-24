@@ -6,7 +6,7 @@ const { registerUser, loginUser, getUsers, getUserById, updateUser, deleteUser }
 router.post("/register", registerUser);
 router.post("/login", loginUser);
 
-router.get("/", authMiddleware, checkRole('ADMIN','customer'), getUsers);
+router.get("/", authMiddleware, checkRole('admin','customer'), getUsers);
 router.get("/:id", getUserById);
 router.put("/:id", updateUser);
 router.delete("/:id", deleteUser);

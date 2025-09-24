@@ -5,7 +5,23 @@ const jwt = require("jsonwebtoken");
 // Register user
 const registerUser = async (req, res) => {
   try {
-    const { name, email, password, phone } = req.body;
+    const { name, email, password, confirmPassword } = req.body;
+    
+    // Check if passwords match
+    if (password !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Passwords do not match"
+      });
+    }
+
+    // Validate password strength (optional)
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters long"
+      });
+    }
     
     // Check if user already exists
     const existingUser = await User.findOne({ email });
@@ -24,8 +40,7 @@ const registerUser = async (req, res) => {
     const user = new User({
       name,
       email,
-      password: hashedPassword,
-      phone
+      password: hashedPassword
     });
 
     await user.save();
@@ -136,10 +151,10 @@ const getUserById = async (req, res) => {
 // Update user
 const updateUser = async (req, res) => {
   try {
-    const { name, email, phone } = req.body;
+    const { name, email } = req.body;
     const user = await User.findByIdAndUpdate(
       req.params.id,
-      { name, email, phone },
+      { name, email },
       { new: true }
     ).select("-password");
 
