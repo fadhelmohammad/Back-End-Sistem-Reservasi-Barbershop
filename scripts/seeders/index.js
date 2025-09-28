@@ -29,6 +29,7 @@ const runAllSeeders = () => {
   
   // Run seeders in order (dependencies matter)
   runSeeder("User Seeder", path.join(__dirname, "userSeeder.js"));
+  runSeeder("Package Seeder", path.join(__dirname, "packageSeeder.js"));
   runSeeder("Barber Seeder", path.join(__dirname, "barberSeeder.js"));
   runSeeder("Schedule Seeder", path.join(__dirname, "scheduleSeeder.js"));
   
@@ -38,6 +39,7 @@ const runAllSeeders = () => {
   
   console.log("\n📋 Database Seeding Summary:");
   console.log("   👥 Users: Sample users (customers, admin, cashier)");
+  console.log("   📦 Packages: Service packages with different price ranges");
   console.log("   💈 Barbers: Multiple barbers available");
   console.log("   📅 Schedules: Multiple schedules for next 14 days");
   
@@ -47,11 +49,29 @@ const runAllSeeders = () => {
   console.log("   👨‍💼 Admin: admin@barbershop.com / admin123");
   console.log("   💰 Cashier: cashier@barbershop.com / cashier123");
   
+  console.log("\n📦 Available Service Packages:");
+  console.log("   💰 Paket Basic - Rp 25,000");
+  console.log("   💰 Paket Premium - Rp 50,000");
+  console.log("   💰 Paket Deluxe - Rp 75,000");
+  console.log("   💰 Paket Executive - Rp 100,000");
+  console.log("   💰 Paket Beard Grooming - Rp 35,000");
+  console.log("   💰 Paket Wedding - Rp 150,000");
+  console.log("   💰 Paket Kids - Rp 20,000");
+  console.log("   💰 Paket Student - Rp 15,000");
+  
   console.log("\n🚀 Next Steps:");
   console.log("   1. Start your server: npm start");
   console.log("   2. Test login in Postman");
-  console.log("   3. Get available schedules: GET /api/schedules/available");
-  console.log("   4. Create reservations: POST /api/reservations");
+  console.log("   3. Get available packages: GET /api/packages");
+  console.log("   4. Get available barbers: GET /api/reservations/barbers");
+  console.log("   5. Get available schedules: GET /api/reservations/schedules/:barberId");
+  console.log("   6. Create reservations: POST /api/reservations");
+  
+  console.log("\n🧪 Reservation Flow Testing:");
+  console.log("   Step 1: GET /api/reservations/packages (choose package)");
+  console.log("   Step 2: GET /api/reservations/barbers (choose barber)");
+  console.log("   Step 3: GET /api/reservations/schedules/:barberId (choose schedule)");
+  console.log("   Step 4: POST /api/reservations (create reservation)");
   
   console.log("\n💡 Happy Testing! 🧪");
 };

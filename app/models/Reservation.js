@@ -5,18 +5,48 @@ const reservationSchema = new mongoose.Schema({
     type: String,
     unique: true,
   },
-  customer: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  schedule: { type: mongoose.Schema.Types.ObjectId, ref: "Schedule", required: true },
-  status: { type: String, enum: ["pending", "confirmed", "cancelled", "rejected"], default: "pending" },
-}, { timestamps: true, optimisticConcurrency: true });
+  customer: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true
+  },
+  package: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Package",
+    required: true
+  },
+  barber: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Barber",
+    required: true
+  },
+  schedule: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Schedule",
+    required: true
+  },
+  totalPrice: {
+    type: Number,
+    required: true
+  },
+  status: {
+    type: String,
+    enum: ["pending", "confirmed", "in_progress", "completed", "cancelled"],
+    default: "pending"
+  },
+  notes: {
+    type: String,
+    trim: true
+  }
+}, { 
+  timestamps: true 
+});
 
 // Pre-save middleware untuk generate reservationId
 reservationSchema.pre('save', async function(next) {
   if (!this.reservationId) {
-    const date = new Date(this.createdAt || Date.now());
-    const dateStr = date.toISOString().slice(0,10).replace(/-/g, '');
-    const randomNum = Math.floor(1000 + Math.random() * 9000);
-    this.reservationId = `RSV-${dateStr}-${randomNum}`;
+    const count = await this.constructor.countDocuments();
+    this.reservationId = `RES${String(count + 1).padStart(4, '0')}`;
   }
   next();
 });

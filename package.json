@@ -6,14 +6,18 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js",
+    "build": "npm install && npm run lint && npm test",
+    "lint": "eslint .",
     "dev": "nodemon --watch app --watch server.js",
     "seed:users": "node scripts/seeders/userSeeder.js",
-    "seed:barbers": "node scripts/seeders/barberSeeder.js", 
+    "seed:barbers": "node scripts/seeders/barberSeeder.js",
     "seed:schedules": "node scripts/seeders/scheduleSeeder.js",
+    "seed:packages": "node scripts/seeders/packageSeeder.js",
     "seed": "node scripts/seeders/index.js",
     "reset:data": "node scripts/resetData.js",
-    "view-data": "node scripts/viewData.js"  
-
+    "view-data": "node scripts/viewData.js",
+    "clear:data": "node scripts/clearData.js",
+    "seed:fresh": "npm run clear:data && npm run seed"
   },
   "repository": {
     "type": "git",
@@ -24,11 +28,15 @@
   "dependencies": {
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
-    "dotenv": "^16.5.0",
+    "dotenv": "^16.6.1",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.15.1",
+    "mongoose": "^8.18.2",
     "nodemon": "^3.1.10"
+  },
+  "devDependencies": {
+    "eslint": "^9.36.0",
+    "jest": "^30.1.3",
+    "supertest": "^7.1.4"
   }
-  
 }
