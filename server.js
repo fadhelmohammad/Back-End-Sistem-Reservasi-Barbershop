@@ -31,4 +31,4 @@ app.use("/api/schedules", scheduleRoutes);
 app.use("/api/barbers", barberRoutes);
 app.use("/api/packages", packageRoutes);
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
