@@ -5,8 +5,25 @@ const userSchema = new mongoose.Schema({
     type: String,
     unique: true,   
   },
-  name: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
+  name: { 
+    type: String, 
+    required: true,
+    set: function(value) {
+      // Convert to title case (huruf kapital di awal setiap kata)
+      return value
+        .toLowerCase()
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+    }
+  },
+  email: { 
+    type: String, 
+    required: true, 
+    unique: true,
+    lowercase: true, // Otomatis convert ke lowercase
+    trim: true // Hapus spasi di awal dan akhir
+  },
   password: { type: String, required: true },
   role: { type: String, enum: ["customer", "admin", "cashier"], default: "customer" },
 }, { timestamps: true });

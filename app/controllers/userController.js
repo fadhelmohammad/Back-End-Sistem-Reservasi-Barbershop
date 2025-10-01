@@ -5,7 +5,11 @@ const jwt = require("jsonwebtoken");
 // Register user
 const registerUser = async (req, res) => {
   try {
-    const { name, email, password, confirmPassword } = req.body;
+    let { name, email, password, confirmPassword } = req.body;
+    
+    // Normalize input
+    name = name?.trim();
+    email = email?.toLowerCase().trim();
     
     // Check if passwords match
     if (password !== confirmPassword) {
@@ -15,7 +19,7 @@ const registerUser = async (req, res) => {
       });
     }
 
-    // Validate password strength (optional)
+    // Validate password strength
     if (password.length < 6) {
       return res.status(400).json({
         success: false,
@@ -47,7 +51,13 @@ const registerUser = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "User registered successfully"
+      message: "User registered successfully",
+      data: {
+        userId: user.userId,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
     });
   } catch (error) {
     res.status(500).json({
@@ -61,9 +71,12 @@ const registerUser = async (req, res) => {
 // Login user
 const loginUser = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    let { email, password } = req.body;
+    
+    // Normalize email input
+    email = email?.toLowerCase().trim();
 
-    // Find user
+    // Find user by email
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(400).json({
@@ -85,7 +98,7 @@ const loginUser = async (req, res) => {
     const token = jwt.sign(
       { userId: user._id },
       process.env.JWT_SECRET || "your_jwt_secret",
-      { expiresIn: "7d" }
+      { expiresIn: "24h" }
     );
 
     res.json({
@@ -93,7 +106,7 @@ const loginUser = async (req, res) => {
       message: "Login successful",
       token,
       user: {
-        id: user._id,
+        userId: user.userId,
         name: user.name,
         email: user.email,
         role: user.role
