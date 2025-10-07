@@ -5,11 +5,20 @@ const jwt = require("jsonwebtoken");
 // Register user
 const registerUser = async (req, res) => {
   try {
-    let { name, email, password, confirmPassword } = req.body;
+    let { name, email, phone, password, confirmPassword } = req.body;
     
     // Normalize input
     name = name?.trim();
     email = email?.toLowerCase().trim();
+    phone = phone?.trim();
+    
+    // Validate required fields
+    if (!name || !email || !phone || !password || !confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required (name, email, phone, password, confirmPassword)"
+      });
+    }
     
     // Check if passwords match
     if (password !== confirmPassword) {
@@ -27,13 +36,24 @@ const registerUser = async (req, res) => {
       });
     }
     
-    // Check if user already exists
-    const existingUser = await User.findOne({ email });
+    // Check if user already exists (email or phone)
+    const existingUser = await User.findOne({ 
+      $or: [{ email }, { phone }] 
+    });
+    
     if (existingUser) {
-      return res.status(400).json({
-        success: false,
-        message: "User already exists"
-      });
+      if (existingUser.email === email) {
+        return res.status(400).json({
+          success: false,
+          message: "Email already registered"
+        });
+      }
+      if (existingUser.phone === phone) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone number already registered"
+        });
+      }
     }
 
     // Hash password
@@ -44,6 +64,7 @@ const registerUser = async (req, res) => {
     const user = new User({
       name,
       email,
+      phone,
       password: hashedPassword
     });
 
@@ -56,10 +77,21 @@ const registerUser = async (req, res) => {
         userId: user.userId,
         name: user.name,
         email: user.email,
+        phone: user.phone,
         role: user.role
       }
     });
   } catch (error) {
+    // Handle mongoose validation errors
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: "Validation error",
+        errors: messages
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: "Registration failed",
@@ -71,13 +103,19 @@ const registerUser = async (req, res) => {
 // Login user
 const loginUser = async (req, res) => {
   try {
-    let { email, password } = req.body;
+    let { emailOrPhone, password } = req.body;
     
-    // Normalize email input
-    email = email?.toLowerCase().trim();
+    // Normalize input
+    emailOrPhone = emailOrPhone?.toLowerCase().trim();
 
-    // Find user by email
-    const user = await User.findOne({ email });
+    // Find user by email or phone
+    const user = await User.findOne({ 
+      $or: [
+        { email: emailOrPhone },
+        { phone: emailOrPhone }
+      ]
+    });
+    
     if (!user) {
       return res.status(400).json({
         success: false,
@@ -109,6 +147,7 @@ const loginUser = async (req, res) => {
         userId: user.userId,
         name: user.name,
         email: user.email,
+        phone: user.phone,
         role: user.role
       }
     });
@@ -127,12 +166,13 @@ const getUsers = async (req, res) => {
     const users = await User.find().select("-password");
     res.json({
       success: true,
+      message: "Users retrieved successfully",
       data: users
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Failed to fetch users",
+      message: "Failed to retrieve users",
       error: error.message
     });
   }
@@ -150,12 +190,13 @@ const getUserById = async (req, res) => {
     }
     res.json({
       success: true,
+      message: "User retrieved successfully",
       data: user
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Failed to fetch user",
+      message: "Failed to retrieve user",
       error: error.message
     });
   }
@@ -164,11 +205,38 @@ const getUserById = async (req, res) => {
 // Update user
 const updateUser = async (req, res) => {
   try {
-    const { name, email } = req.body;
+    const { name, email, phone } = req.body;
+    
+    // Check if email or phone already exists (exclude current user)
+    if (email || phone) {
+      const existingUser = await User.findOne({
+        _id: { $ne: req.params.id },
+        $or: [
+          ...(email ? [{ email }] : []),
+          ...(phone ? [{ phone }] : [])
+        ]
+      });
+      
+      if (existingUser) {
+        if (existingUser.email === email) {
+          return res.status(400).json({
+            success: false,
+            message: "Email already exists"
+          });
+        }
+        if (existingUser.phone === phone) {
+          return res.status(400).json({
+            success: false,
+            message: "Phone number already exists"
+          });
+        }
+      }
+    }
+
     const user = await User.findByIdAndUpdate(
       req.params.id,
-      { name, email },
-      { new: true }
+      { name, email, phone },
+      { new: true, runValidators: true }
     ).select("-password");
 
     if (!user) {
@@ -184,6 +252,15 @@ const updateUser = async (req, res) => {
       data: user
     });
   } catch (error) {
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: "Validation error",
+        errors: messages
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: "Failed to update user",
@@ -202,7 +279,7 @@ const deleteUser = async (req, res) => {
         message: "User not found"
       });
     }
-
+    
     res.json({
       success: true,
       message: "User deleted successfully"

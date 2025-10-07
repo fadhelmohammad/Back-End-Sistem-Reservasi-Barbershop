@@ -24,6 +24,27 @@ const userSchema = new mongoose.Schema({
     lowercase: true, // Otomatis convert ke lowercase
     trim: true // Hapus spasi di awal dan akhir
   },
+  phone: {
+    type: String,
+    required: true,
+    unique: true,
+    validate: {
+      validator: function(v) {
+        // Validasi format nomor HP Indonesia
+        return /^(\+62|62|0)8[1-9][0-9]{6,9}$/.test(v);
+      },
+      message: 'Phone number must be a valid Indonesian mobile number'
+    },
+    set: function(value) {
+      // Normalize nomor HP ke format standar (08xxxxxxxxxx)
+      if (value.startsWith('+62')) {
+        return '0' + value.slice(3);
+      } else if (value.startsWith('62')) {
+        return '0' + value.slice(2);
+      }
+      return value;
+    }
+  },
   password: { type: String, required: true },
   role: { type: String, enum: ["customer", "admin", "cashier"], default: "customer" },
 }, { timestamps: true });
