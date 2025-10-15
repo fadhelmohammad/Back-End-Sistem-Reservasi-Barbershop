@@ -3,21 +3,23 @@ const Package = require("../models/Package");
 const Barber = require("../models/Barber");
 const Schedule = require("../models/Schedule");
 
-// Step 1: Get available packages
+// Get available packages for reservation
 const getAvailablePackages = async (req, res) => {
   try {
     const packages = await Package.find({ isActive: true })
+      .select('packageId name price description')
       .sort({ price: 1 });
 
     res.status(200).json({
       success: true,
       message: "Available packages retrieved successfully",
-      data: packages
+      data: packages,
+      count: packages.length
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Error retrieving packages",
+      message: "Error retrieving available packages",
       error: error.message
     });
   }
@@ -90,8 +92,23 @@ const getAvailableSchedules = async (req, res) => {
 // Step 4: Create reservation
 const createReservation = async (req, res) => {
   try {
-    const { packageId, barberId, scheduleId, notes } = req.body;
+    const { 
+      customerName, 
+      customerPhone, 
+      packageId, 
+      barberId, 
+      scheduleId, 
+      notes 
+    } = req.body;
     const customerId = req.user.userId;
+
+    // Validate customer data
+    if (!customerName || !customerPhone) {
+      return res.status(400).json({
+        success: false,
+        message: "Customer name and phone are required"
+      });
+    }
 
     // Validate package exists
     const selectedPackage = await Package.findById(packageId);
@@ -138,6 +155,8 @@ const createReservation = async (req, res) => {
     // Create reservation
     const reservation = new Reservation({
       customer: customerId,
+      customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
       package: packageId,
       barber: barberId,
       schedule: scheduleId,

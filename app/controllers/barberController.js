@@ -1,62 +1,22 @@
 const Barber = require("../models/Barber");
 
-// Create barber
-const createBarber = async (req, res) => {
-  try {
-    const { name, email, phone } = req.body;
-    
-    // Validate required fields
-    if (!name || !email || !phone) {
-      return res.status(400).json({ 
-        success: false,
-        message: "Name, email, and phone are required" 
-      });
-    }
-
-    // Check if barber already exists
-    const existingBarber = await Barber.findOne({ email });
-    if (existingBarber) {
-      return res.status(400).json({
-        success: false,
-        message: "Barber with this email already exists"
-      });
-    }
-
-    const barber = new Barber({ 
-      name, 
-      email, 
-      phone
-    });
-    
-    const savedBarber = await barber.save();
-    
-    res.status(201).json({
-      success: true,
-      message: "Barber created successfully",
-      data: savedBarber
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      success: false,
-      message: "Failed to create barber",
-      error: error.message 
-    });
-  }
-};
-
 // Get all barbers
 const getAllBarbers = async (req, res) => {
   try {
-    const barbers = await Barber.find({ isActive: true });
-    res.json({
+    const barbers = await Barber.find()
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
       success: true,
-      data: barbers
+      message: "Barbers retrieved successfully",
+      data: barbers,
+      count: barbers.length
     });
   } catch (error) {
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: "Failed to fetch barbers",
-      error: error.message 
+      message: "Error retrieving barbers",
+      error: error.message
     });
   }
 };
@@ -65,23 +25,80 @@ const getAllBarbers = async (req, res) => {
 const getBarberById = async (req, res) => {
   try {
     const barber = await Barber.findById(req.params.id);
-    
+
     if (!barber) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: "Barber not found" 
+        message: "Barber not found"
       });
     }
 
-    res.json({
+    res.status(200).json({
       success: true,
+      message: "Barber retrieved successfully",
       data: barber
     });
   } catch (error) {
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: "Failed to fetch barber",
-      error: error.message 
+      message: "Error retrieving barber",
+      error: error.message
+    });
+  }
+};
+
+// Create new barber
+const createBarber = async (req, res) => {
+  try {
+    const { name, photo } = req.body;
+
+    // Validate required fields
+    if (!name || !photo) {
+      return res.status(400).json({
+        success: false,
+        message: "Name and photo are required"
+      });
+    }
+
+    // Check if barber with same name already exists
+    const existingBarber = await Barber.findOne({ 
+      name: new RegExp(`^${name}$`, 'i') 
+    });
+
+    if (existingBarber) {
+      return res.status(400).json({
+        success: false,
+        message: "Barber with this name already exists"
+      });
+    }
+
+    // Create barber
+    const barber = new Barber({
+      name: name.trim(),
+      photo: photo.trim()
+    });
+
+    await barber.save();
+
+    res.status(201).json({
+      success: true,
+      message: "Barber created successfully",
+      data: barber
+    });
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: "Validation error",
+        errors: messages
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Error creating barber",
+      error: error.message
     });
   }
 };
@@ -89,31 +106,58 @@ const getBarberById = async (req, res) => {
 // Update barber
 const updateBarber = async (req, res) => {
   try {
-    const { name, email, phone } = req.body;
-    
-    const barber = await Barber.findByIdAndUpdate(
-      req.params.id,
-      { name, email, phone },
-      { new: true, runValidators: true }
-    );
-    
+    const { id } = req.params;
+    const { name, photo, isActive } = req.body;
+
+    const barber = await Barber.findById(id);
     if (!barber) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: "Barber not found" 
+        message: "Barber not found"
       });
     }
-    
-    res.json({
+
+    // Check if name already exists (exclude current barber)
+    if (name) {
+      const existingBarber = await Barber.findOne({
+        _id: { $ne: id },
+        name: new RegExp(`^${name}$`, 'i')
+      });
+
+      if (existingBarber) {
+        return res.status(400).json({
+          success: false,
+          message: "Barber with this name already exists"
+        });
+      }
+    }
+
+    // Update fields
+    if (name) barber.name = name.trim();
+    if (photo) barber.photo = photo.trim();
+    if (typeof isActive === 'boolean') barber.isActive = isActive;
+
+    await barber.save();
+
+    res.status(200).json({
       success: true,
       message: "Barber updated successfully",
       data: barber
     });
   } catch (error) {
-    res.status(500).json({ 
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: "Validation error",
+        errors: messages
+      });
+    }
+
+    res.status(500).json({
       success: false,
-      message: "Failed to update barber",
-      error: error.message 
+      message: "Error updating barber",
+      error: error.message
     });
   }
 };
@@ -121,32 +165,57 @@ const updateBarber = async (req, res) => {
 // Delete barber
 const deleteBarber = async (req, res) => {
   try {
-    const barber = await Barber.findByIdAndDelete(req.params.id);
-    
+    const { id } = req.params;
+
+    const barber = await Barber.findById(id);
     if (!barber) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: "Barber not found" 
+        message: "Barber not found"
       });
     }
-    
-    res.json({ 
+
+    await Barber.findByIdAndDelete(id);
+
+    res.status(200).json({
       success: true,
-      message: "Barber deleted successfully" 
+      message: "Barber deleted successfully"
     });
   } catch (error) {
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: "Failed to delete barber",
-      error: error.message 
+      message: "Error deleting barber",
+      error: error.message
+    });
+  }
+};
+
+// Get active barbers only
+const getActiveBarbers = async (req, res) => {
+  try {
+    const barbers = await Barber.find({ isActive: true })
+      .sort({ name: 1 });
+
+    res.status(200).json({
+      success: true,
+      message: "Active barbers retrieved successfully",
+      data: barbers,
+      count: barbers.length
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error retrieving active barbers",
+      error: error.message
     });
   }
 };
 
 module.exports = {
-  createBarber,
   getAllBarbers,
   getBarberById,
+  createBarber,
   updateBarber,
-  deleteBarber
+  deleteBarber,
+  getActiveBarbers
 };

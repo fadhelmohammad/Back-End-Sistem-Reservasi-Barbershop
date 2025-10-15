@@ -1,53 +1,10 @@
 const Package = require("../models/Package");
+const mongoose = require("mongoose");
 
-// Create package
-const createPackage = async (req, res) => {
-  try {
-    const { name, price, description } = req.body;
-
-    // Validate required fields
-    if (!name || !price || !description) {
-      return res.status(400).json({
-        success: false,
-        message: "Name, price, and description are required"
-      });
-    }
-
-    // Check if package with same name exists
-    const existingPackage = await Package.findOne({ name });
-    if (existingPackage) {
-      return res.status(400).json({
-        success: false,
-        message: "Package with this name already exists"
-      });
-    }
-
-    const newPackage = new Package({
-      name,
-      price,
-      description
-    });
-
-    const savedPackage = await newPackage.save();
-
-    res.status(201).json({
-      success: true,
-      message: "Package created successfully",
-      data: savedPackage
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Error creating package",
-      error: error.message
-    });
-  }
-};
-
-// Get all packages
+// Get all packages (Admin only)
 const getAllPackages = async (req, res) => {
   try {
-    const packages = await Package.find({ isActive: true })
+    const packages = await Package.find()
       .sort({ createdAt: -1 });
 
     res.status(200).json({
@@ -68,7 +25,17 @@ const getAllPackages = async (req, res) => {
 // Get package by ID
 const getPackageById = async (req, res) => {
   try {
-    const package = await Package.findById(req.params.id);
+    const { id } = req.params;
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid package ID format"
+      });
+    }
+
+    const package = await Package.findById(id);
 
     if (!package) {
       return res.status(404).json({
@@ -91,30 +58,139 @@ const getPackageById = async (req, res) => {
   }
 };
 
+// Create new package
+const createPackage = async (req, res) => {
+  try {
+    const { name, price, description } = req.body;
+
+    // Validate required fields
+    if (!name || !price || !description) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, price, and description are required"
+      });
+    }
+
+    // Validate price
+    if (price <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Price must be greater than 0"
+      });
+    }
+
+    // Check if package with same name already exists
+    const existingPackage = await Package.findOne({ 
+      name: new RegExp(`^${name}$`, 'i') 
+    });
+
+    if (existingPackage) {
+      return res.status(400).json({
+        success: false,
+        message: "Package with this name already exists"
+      });
+    }
+
+    // Create package
+    const package = new Package({
+      name: name.trim(),
+      price,
+      description: description.trim()
+    });
+
+    await package.save();
+
+    res.status(201).json({
+      success: true,
+      message: "Package created successfully",
+      data: package
+    });
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: "Validation error",
+        errors: messages
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Error creating package",
+      error: error.message
+    });
+  }
+};
+
 // Update package
 const updatePackage = async (req, res) => {
   try {
+    const { id } = req.params;
     const { name, price, description, isActive } = req.body;
 
-    const updatedPackage = await Package.findByIdAndUpdate(
-      req.params.id,
-      { name, price, description, isActive },
-      { new: true, runValidators: true }
-    );
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid package ID format"
+      });
+    }
 
-    if (!updatedPackage) {
+    const package = await Package.findById(id);
+    if (!package) {
       return res.status(404).json({
         success: false,
         message: "Package not found"
       });
     }
 
+    // Check if name already exists (exclude current package)
+    if (name) {
+      const existingPackage = await Package.findOne({
+        _id: { $ne: id },
+        name: new RegExp(`^${name}$`, 'i')
+      });
+
+      if (existingPackage) {
+        return res.status(400).json({
+          success: false,
+          message: "Package with this name already exists"
+        });
+      }
+    }
+
+    // Validate price if provided
+    if (price !== undefined && price <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Price must be greater than 0"
+      });
+    }
+
+    // Update fields
+    if (name) package.name = name.trim();
+    if (price) package.price = price;
+    if (description) package.description = description.trim();
+    if (typeof isActive === 'boolean') package.isActive = isActive;
+
+    await package.save();
+
     res.status(200).json({
       success: true,
       message: "Package updated successfully",
-      data: updatedPackage
+      data: package
     });
   } catch (error) {
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: "Validation error",
+        errors: messages
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: "Error updating package",
@@ -123,21 +199,28 @@ const updatePackage = async (req, res) => {
   }
 };
 
-// Delete package (soft delete)
+// Delete package
 const deletePackage = async (req, res) => {
   try {
-    const deletedPackage = await Package.findByIdAndUpdate(
-      req.params.id,
-      { isActive: false },
-      { new: true }
-    );
+    const { id } = req.params;
 
-    if (!deletedPackage) {
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid package ID format"
+      });
+    }
+
+    const package = await Package.findById(id);
+    if (!package) {
       return res.status(404).json({
         success: false,
         message: "Package not found"
       });
     }
+
+    await Package.findByIdAndDelete(id);
 
     res.status(200).json({
       success: true,
@@ -152,36 +235,32 @@ const deletePackage = async (req, res) => {
   }
 };
 
-// Permanently delete package
-const permanentDeletePackage = async (req, res) => {
+// Get active packages only (Public)
+const getActivePackages = async (req, res) => {
   try {
-    const deletedPackage = await Package.findByIdAndDelete(req.params.id);
-
-    if (!deletedPackage) {
-      return res.status(404).json({
-        success: false,
-        message: "Package not found"
-      });
-    }
+    const packages = await Package.find({ isActive: true })
+      .sort({ price: 1 });
 
     res.status(200).json({
       success: true,
-      message: "Package permanently deleted"
+      message: "Active packages retrieved successfully",
+      data: packages,
+      count: packages.length
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Error deleting package permanently",
+      message: "Error retrieving active packages",
       error: error.message
     });
   }
 };
 
 module.exports = {
-  createPackage,
   getAllPackages,
   getPackageById,
+  createPackage,
   updatePackage,
   deletePackage,
-  permanentDeletePackage
+  getActivePackages
 };

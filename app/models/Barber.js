@@ -8,29 +8,34 @@ const barberSchema = new mongoose.Schema({
   name: {
     type: String,
     required: true,
+    trim: true,
+    set: function(value) {
+      // Convert to title case
+      return value
+        .toLowerCase()
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+    }
   },
-  email: {
+  photo: {
     type: String,
     required: true,
-    unique: true,
-  },
-  phone: {
-    type: String,
-    required: true,
+    trim: true
   },
   isActive: {
     type: Boolean,
-    default: true,
+    default: true
   }
-}, { timestamps: true });
+}, { 
+  timestamps: true 
+});
 
 // Pre-save middleware untuk generate barberId
 barberSchema.pre('save', async function(next) {
   if (!this.barberId) {
-    const date = new Date();
-    const dateStr = date.toISOString().slice(0,10).replace(/-/g, '');
-    const randomNum = Math.floor(1000 + Math.random() * 9000);
-    this.barberId = `BBR-${dateStr}-${randomNum}`;
+    const count = await this.constructor.countDocuments();
+    this.barberId = `BRB${String(count + 1).padStart(3, '0')}`;
   }
   next();
 });

@@ -10,6 +10,16 @@ const reservationSchema = new mongoose.Schema({
     ref: "User",
     required: true
   },
+  customerName: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  customerPhone: {
+    type: String,
+    required: true,
+    trim: true
+  },
   package: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Package",

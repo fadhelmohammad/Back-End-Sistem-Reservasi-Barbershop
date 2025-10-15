@@ -13,10 +13,18 @@ const registerUser = async (req, res) => {
     phone = phone?.trim();
     
     // Validate required fields
-    if (!name || !email || !phone || !password || !confirmPassword) {
+    if (!name || !email || !password || !confirmPassword) {
       return res.status(400).json({
         success: false,
-        message: "All fields are required (name, email, phone, password, confirmPassword)"
+        message: "Name, email, password, and confirmPassword are required"
+      });
+    }
+
+    // Phone is required only for customers (default role)
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number is required for customer registration"
       });
     }
     
@@ -38,7 +46,10 @@ const registerUser = async (req, res) => {
     
     // Check if user already exists (email or phone)
     const existingUser = await User.findOne({ 
-      $or: [{ email }, { phone }] 
+      $or: [
+        { email }, 
+        ...(phone ? [{ phone }] : [])
+      ] 
     });
     
     if (existingUser) {
@@ -48,7 +59,7 @@ const registerUser = async (req, res) => {
           message: "Email already registered"
         });
       }
-      if (existingUser.phone === phone) {
+      if (phone && existingUser.phone === phone) {
         return res.status(400).json({
           success: false,
           message: "Phone number already registered"
