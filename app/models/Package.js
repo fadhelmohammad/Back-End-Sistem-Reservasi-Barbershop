@@ -13,7 +13,6 @@ const packageSchema = new mongoose.Schema({
     required: true,
     trim: true,
     set: function(value) {
-      // Convert to title case
       return value
         .toLowerCase()
         .split(' ')
@@ -39,7 +38,7 @@ const packageSchema = new mongoose.Schema({
   timestamps: true 
 });
 
-// Pre-save middleware untuk generate packageId
+// Pre-save middleware
 packageSchema.pre('save', async function(next) {
   if (!this.packageId) {
     const count = await this.constructor.countDocuments();
