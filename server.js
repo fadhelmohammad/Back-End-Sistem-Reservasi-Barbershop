@@ -10,6 +10,8 @@ const reservationRoutes = require("./app/routes/reservationRoutes");
 const packageRoutes = require("./app/routes/packageRoutes");
 const dashboardRoutes = require("./app/routes/dashboardRoutes");
 const cashierRoutes = require("./app/routes/cashierRoutes");
+const adminRoutes = require("./app/routes/adminRoutes");
+
 const cors = require("cors");
 
 
@@ -32,6 +34,7 @@ app.use("/auth", authRoutes);
 app.use("/reservations", reservationRoutes);
 app.use("/schedules", scheduleRoutes);
 app.use("/barbers", barberRoutes);
+app.use("/admins", adminRoutes); 
 app.use("/packages/", packageRoutes);
 app.use("/dashboard", dashboardRoutes);
 app.use("/cashiers", cashierRoutes);

@@ -8,6 +8,7 @@ const getDashboardStats = async (req, res) => {
     let totalCapster = 0;
     let totalLayanan = 0;
     let totalCustomer = 0;
+    let totalAdmin = 0;  // ← TAMBAH INI
     let totalReservasi = 0;
 
     // Count Barbers
@@ -28,11 +29,18 @@ const getDashboardStats = async (req, res) => {
       totalLayanan = 0; // Set ke 0 jika error
     }
 
-    // Count Users
+    // Count Users (Customers)
     try {
       totalCustomer = await User.countDocuments({ role: "customer" });
     } catch (error) {
       console.error('Error counting customers:', error.message);
+    }
+
+    // Count Admins ← TAMBAH INI
+    try {
+      totalAdmin = await User.countDocuments({ role: "admin" });
+    } catch (error) {
+      console.error('Error counting admins:', error.message);
     }
 
     // Count Reservations
@@ -49,6 +57,7 @@ const getDashboardStats = async (req, res) => {
         totalCapster,
         totalLayanan,
         totalCustomer,
+        totalAdmin,    // ← TAMBAH INI
         totalReservasi
       }
     });
