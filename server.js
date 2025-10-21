@@ -28,11 +28,11 @@ app.use(express.urlencoded({ extended: true }));
 app.get("/", (req, res) => {
     res.send("Hello World")
 });
-app.use("/", authRoutes);
+app.use("/auth", authRoutes);
 app.use("/reservations", reservationRoutes);
 app.use("/schedules", scheduleRoutes);
 app.use("/barbers", barberRoutes);
-app.use("/packages", packageRoutes);
+app.use("/packages/", packageRoutes);
 app.use("/dashboard", dashboardRoutes);
 app.use("/cashiers", cashierRoutes);
 

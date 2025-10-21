@@ -1,5 +1,4 @@
-const jwt = require("jsonwebtoken");
-const User = require("../models/User");
+const { verifyToken } = require("../services/authService");
 
 const authMiddleware = async (req, res, next) => {
   try {
@@ -12,22 +11,22 @@ const authMiddleware = async (req, res, next) => {
       });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your_jwt_secret");
-    const user = await User.findById(decoded.userId);
+    const verificationResult = await verifyToken(token);
     
-    if (!user) {
+    if (!verificationResult.status) {
       return res.status(401).json({
         success: false,
-        message: "Invalid token."
+        message: verificationResult.message
       });
     }
 
-    req.user = user;
+    req.user = verificationResult.data;
     next();
   } catch (error) {
     res.status(401).json({
       success: false,
-      message: "Invalid token."
+      message: "Invalid token",
+      error: error.message
     });
   }
 };

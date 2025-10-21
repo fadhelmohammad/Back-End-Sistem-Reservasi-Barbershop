@@ -1,6 +1,7 @@
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { verifyToken } = require("../services/authService");
 
 // Register user
 const registerUser = async (req, res) => {
@@ -304,12 +305,85 @@ const deleteUser = async (req, res) => {
   }
 };
 
+// Get user profile (using token verification)
+const getUserProfile = async (req, res) => {
+  try {
+    const token = req.header("Authorization")?.replace("Bearer ", "");
+    
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: "Access denied. No token provided."
+      });
+    }
+
+    const verificationResult = await verifyToken(token);
+    
+    if (!verificationResult.status) {
+      return res.status(401).json({
+        success: false,
+        message: verificationResult.message
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Profile retrieved successfully",
+      data: verificationResult.data
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve profile",
+      error: error.message
+    });
+  }
+};
+
+// Verify token endpoint
+const verifyUserToken = async (req, res) => {
+  try {
+    const { token } = req.body;
+    
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        message: "Token is required"
+      });
+    }
+
+    const verificationResult = await verifyToken(token);
+    
+    if (!verificationResult.status) {
+      return res.status(401).json({
+        success: false,
+        message: verificationResult.message
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Token is valid",
+      data: verificationResult.data
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Token verification failed",
+      error: error.message
+    });
+  }
+};
+
+// Update exports
 module.exports = {
   registerUser,
   loginUser,
   getUsers,
   getUserById,
   updateUser,
-  deleteUser
+  deleteUser,
+  getUserProfile,
+  verifyUserToken
 };
 
