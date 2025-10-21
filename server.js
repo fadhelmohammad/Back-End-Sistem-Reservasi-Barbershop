@@ -3,7 +3,7 @@ require('dotenv').config(); // Tambahkan di paling atas
 
 const express = require("express");
 const connectDB = require("./app/config/db");
-const userRoutes = require("./app/routes/userRoutes");
+const authRoutes = require("./app/routes/authRoutes");
 const barberRoutes = require("./app/routes/barberRoutes");
 const scheduleRoutes = require("./app/routes/scheduleRoutes");
 const reservationRoutes = require("./app/routes/reservationRoutes");
@@ -28,12 +28,12 @@ app.use(express.urlencoded({ extended: true }));
 app.get("/", (req, res) => {
     res.send("Hello World")
 });
-app.use("/api/users", userRoutes);
-app.use("/api/reservations", reservationRoutes);
-app.use("/api/schedules", scheduleRoutes);
-app.use("/api/barbers", barberRoutes);
-app.use("/api/packages", packageRoutes);
-app.use("/api/dashboard", dashboardRoutes);
-app.use("/api/cashiers", cashierRoutes);
+app.use("/", authRoutes);
+app.use("/reservations", reservationRoutes);
+app.use("/schedules", scheduleRoutes);
+app.use("/barbers", barberRoutes);
+app.use("/packages", packageRoutes);
+app.use("/dashboard", dashboardRoutes);
+app.use("/cashiers", cashierRoutes);
 
 app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
