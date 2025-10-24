@@ -9,23 +9,41 @@ const barberSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true,
-    set: function(value) {
-      // Convert to title case
-      return value
-        .toLowerCase()
-        .split(' ')
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ');
-    }
   },
-  photo: {
+  email: {
     type: String,
     required: true,
-    trim: true
+    unique: true,
+    trim: true,
+    lowercase: true,
+    validate: {
+      validator: function(email) {
+        // Email validation regex
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+      },
+      message: 'Please enter a valid email address'
+    }
+  },
+  phone: {
+    type: String,
+    required: true,
+    unique: true,
+    trim: true,
+  },
+  // Photo fields
+  photo: {
+    url: {
+      type: String,
+      default: null
+    },
+    publicId: {
+      type: String,
+      default: null
+    }
   },
   isActive: {
     type: Boolean,
-    default: true
+    default: true,
   }
 }, { 
   timestamps: true 
@@ -34,8 +52,9 @@ const barberSchema = new mongoose.Schema({
 // Pre-save middleware untuk generate barberId
 barberSchema.pre('save', async function(next) {
   if (!this.barberId) {
-    const count = await this.constructor.countDocuments();
-    this.barberId = `BRB${String(count + 1).padStart(3, '0')}`;
+    const timestamp = Date.now().toString();
+    const random = Math.floor(Math.random() * 10000);
+    this.barberId = `BBR-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${random}`;
   }
   next();
 });

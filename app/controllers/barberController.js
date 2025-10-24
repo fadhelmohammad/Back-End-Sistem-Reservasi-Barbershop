@@ -1,6 +1,8 @@
 const Barber = require("../models/Barber");
+const mongoose = require("mongoose");
+const { cloudinary } = require("../config/cloudinary");
 
-// Get all barbers
+// Get all barbers (Admin only)
 const getAllBarbers = async (req, res) => {
   try {
     const barbers = await Barber.find()
@@ -21,10 +23,40 @@ const getAllBarbers = async (req, res) => {
   }
 };
 
+// Get active barbers only (Public)
+const getActiveBarbers = async (req, res) => {
+  try {
+    const barbers = await Barber.find({ isActive: true })
+      .sort({ name: 1 });
+
+    res.status(200).json({
+      success: true,
+      message: "Active barbers retrieved successfully",
+      data: barbers,
+      count: barbers.length
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error retrieving active barbers",
+      error: error.message
+    });
+  }
+};
+
 // Get barber by ID
 const getBarberById = async (req, res) => {
   try {
-    const barber = await Barber.findById(req.params.id);
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid barber ID format"
+      });
+    }
+
+    const barber = await Barber.findById(id);
 
     if (!barber) {
       return res.status(404).json({
@@ -47,37 +79,63 @@ const getBarberById = async (req, res) => {
   }
 };
 
-// Create new barber
+// Create barber with photo (simplified)
 const createBarber = async (req, res) => {
   try {
-    const { name, photo } = req.body;
+    const { name, email, phone } = req.body;
 
     // Validate required fields
-    if (!name || !photo) {
+    if (!name || !email || !phone) {
       return res.status(400).json({
         success: false,
-        message: "Name and photo are required"
+        message: "Name, email, and phone are required"
       });
     }
 
-    // Check if barber with same name already exists
-    const existingBarber = await Barber.findOne({ 
-      name: new RegExp(`^${name}$`, 'i') 
-    });
-
-    if (existingBarber) {
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
       return res.status(400).json({
         success: false,
-        message: "Barber with this name already exists"
+        message: "Please enter a valid email address"
       });
+    }
+
+    // Check if email already exists
+    const existingEmail = await Barber.findOne({ email: email.toLowerCase() });
+    if (existingEmail) {
+      return res.status(400).json({
+        success: false,
+        message: "Email already exists"
+      });
+    }
+
+    // Check if phone already exists
+    const existingPhone = await Barber.findOne({ phone });
+    if (existingPhone) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number already exists"
+      });
+    }
+
+    // Prepare barber data
+    const barberData = {
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      phone: phone.trim()
+    };
+
+    // Add photo if uploaded
+    if (req.file) {
+      barberData.photo = {
+        url: req.file.path,
+        publicId: req.file.filename
+      };
     }
 
     // Create barber
-    const barber = new Barber({
-      name: name.trim(),
-      photo: photo.trim()
-    });
-
+    const barber = new Barber(barberData);
     await barber.save();
 
     res.status(201).json({
@@ -86,6 +144,24 @@ const createBarber = async (req, res) => {
       data: barber
     });
   } catch (error) {
+    // Delete uploaded file if error occurs
+    if (req.file && req.file.filename) {
+      try {
+        await cloudinary.uploader.destroy(req.file.filename);
+      } catch (deleteError) {
+        console.error('Error deleting uploaded file:', deleteError);
+      }
+    }
+
+    // Handle duplicate key errors
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({
+        success: false,
+        message: `${field.charAt(0).toUpperCase() + field.slice(1)} already exists`
+      });
+    }
+
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(err => err.message);
       return res.status(400).json({
@@ -103,11 +179,18 @@ const createBarber = async (req, res) => {
   }
 };
 
-// Update barber
+// Update barber (simplified)
 const updateBarber = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, photo, isActive } = req.body;
+    const { name, email, phone, isActive } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid barber ID format"
+      });
+    }
 
     const barber = await Barber.findById(id);
     if (!barber) {
@@ -117,25 +200,68 @@ const updateBarber = async (req, res) => {
       });
     }
 
-    // Check if name already exists (exclude current barber)
-    if (name) {
-      const existingBarber = await Barber.findOne({
-        _id: { $ne: id },
-        name: new RegExp(`^${name}$`, 'i')
-      });
-
-      if (existingBarber) {
+    // Validate email format if provided
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
         return res.status(400).json({
           success: false,
-          message: "Barber with this name already exists"
+          message: "Please enter a valid email address"
+        });
+      }
+
+      // Check if email already exists (exclude current barber)
+      const existingEmail = await Barber.findOne({
+        _id: { $ne: id },
+        email: email.toLowerCase()
+      });
+
+      if (existingEmail) {
+        return res.status(400).json({
+          success: false,
+          message: "Email already exists"
+        });
+      }
+    }
+
+    // Check if phone already exists (exclude current barber)
+    if (phone) {
+      const existingPhone = await Barber.findOne({
+        _id: { $ne: id },
+        phone
+      });
+
+      if (existingPhone) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone number already exists"
         });
       }
     }
 
     // Update fields
     if (name) barber.name = name.trim();
-    if (photo) barber.photo = photo.trim();
+    if (email) barber.email = email.toLowerCase().trim();
+    if (phone) barber.phone = phone.trim();
     if (typeof isActive === 'boolean') barber.isActive = isActive;
+
+    // Handle photo update
+    if (req.file) {
+      // Delete old photo from Cloudinary if exists
+      if (barber.photo && barber.photo.publicId) {
+        try {
+          await cloudinary.uploader.destroy(barber.photo.publicId);
+        } catch (deleteError) {
+          console.error('Error deleting old photo:', deleteError);
+        }
+      }
+
+      // Set new photo
+      barber.photo = {
+        url: req.file.path,
+        publicId: req.file.filename
+      };
+    }
 
     await barber.save();
 
@@ -145,6 +271,23 @@ const updateBarber = async (req, res) => {
       data: barber
     });
   } catch (error) {
+    if (req.file && req.file.filename) {
+      try {
+        await cloudinary.uploader.destroy(req.file.filename);
+      } catch (deleteError) {
+        console.error('Error deleting uploaded file:', deleteError);
+      }
+    }
+
+    // Handle duplicate key errors
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({
+        success: false,
+        message: `${field.charAt(0).toUpperCase() + field.slice(1)} already exists`
+      });
+    }
+
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(err => err.message);
       return res.status(400).json({
@@ -167,12 +310,28 @@ const deleteBarber = async (req, res) => {
   try {
     const { id } = req.params;
 
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid barber ID format"
+      });
+    }
+
     const barber = await Barber.findById(id);
     if (!barber) {
       return res.status(404).json({
         success: false,
         message: "Barber not found"
       });
+    }
+
+    // Delete photo from Cloudinary if exists
+    if (barber.photo && barber.photo.publicId) {
+      try {
+        await cloudinary.uploader.destroy(barber.photo.publicId);
+      } catch (deleteError) {
+        console.error('Error deleting photo from Cloudinary:', deleteError);
+      }
     }
 
     await Barber.findByIdAndDelete(id);
@@ -190,32 +349,11 @@ const deleteBarber = async (req, res) => {
   }
 };
 
-// Get active barbers only
-const getActiveBarbers = async (req, res) => {
-  try {
-    const barbers = await Barber.find({ isActive: true })
-      .sort({ name: 1 });
-
-    res.status(200).json({
-      success: true,
-      message: "Active barbers retrieved successfully",
-      data: barbers,
-      count: barbers.length
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Error retrieving active barbers",
-      error: error.message
-    });
-  }
-};
-
 module.exports = {
   getAllBarbers,
+  getActiveBarbers,
   getBarberById,
   createBarber,
   updateBarber,
-  deleteBarber,
-  getActiveBarbers
+  deleteBarber
 };
