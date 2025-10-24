@@ -79,39 +79,38 @@ const getBarberById = async (req, res) => {
   }
 };
 
-// Create barber with photo (simplified)
+// Create barber - Fixed req.body issue
 const createBarber = async (req, res) => {
   try {
-    const { name, email, phone } = req.body;
+    console.log('req.body:', req.body);
+    console.log('req.file:', req.file);
+    console.log('Content-Type:', req.headers['content-type']);
 
-    // Validate required fields
-    if (!name || !email || !phone) {
+    // Handle case where req.body might be undefined
+    if (!req.body) {
       return res.status(400).json({
         success: false,
-        message: "Name, email, and phone are required"
+        message: "Request body is missing. Make sure you're sending form-data properly."
       });
     }
 
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({
-        success: false,
-        message: "Please enter a valid email address"
-      });
-    }
+    // Safe extraction with fallback
+    const name = req.body.name || null;
+    const phone = req.body.phone || null;
 
-    // Check if email already exists
-    const existingEmail = await Barber.findOne({ email: email.toLowerCase() });
-    if (existingEmail) {
+    console.log('Extracted values:', { name, phone });
+
+    // Validate required fields (hanya name dan phone)
+    if (!name || !phone) {
       return res.status(400).json({
         success: false,
-        message: "Email already exists"
+        message: "Name and phone are required",
+        received: { name, phone }
       });
     }
 
     // Check if phone already exists
-    const existingPhone = await Barber.findOne({ phone });
+    const existingPhone = await Barber.findOne({ phone: phone.trim() });
     if (existingPhone) {
       return res.status(400).json({
         success: false,
@@ -122,7 +121,6 @@ const createBarber = async (req, res) => {
     // Prepare barber data
     const barberData = {
       name: name.trim(),
-      email: email.toLowerCase().trim(),
       phone: phone.trim()
     };
 
@@ -144,6 +142,8 @@ const createBarber = async (req, res) => {
       data: barber
     });
   } catch (error) {
+    console.error('Create barber error:', error);
+    
     // Delete uploaded file if error occurs
     if (req.file && req.file.filename) {
       try {
@@ -179,22 +179,28 @@ const createBarber = async (req, res) => {
   }
 };
 
-// Update barber (simplified)
+// Update barber - Remove email, fix req.body
 const updateBarber = async (req, res) => {
   try {
     console.log('req.body:', req.body);
     console.log('req.file:', req.file);
-    console.log('Content-Type:', req.headers['content-type']);
     
     const { id } = req.params;
     
-    // Safe destructuring with fallback
+    // Handle case where req.body might be undefined
+    if (!req.body && !req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No data provided to update"
+      });
+    }
+
+    // Safe extraction
     const name = req.body?.name || null;
-    const email = req.body?.email || null;
     const phone = req.body?.phone || null;
     const isActive = req.body?.isActive || null;
 
-    console.log('Extracted values:', { name, email, phone, isActive });
+    console.log('Extracted values:', { name, phone, isActive });
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -209,30 +215,6 @@ const updateBarber = async (req, res) => {
         success: false,
         message: "Barber not found"
       });
-    }
-
-    // Validate email format if provided
-    if (email && email.trim()) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
-        return res.status(400).json({
-          success: false,
-          message: "Please enter a valid email address"
-        });
-      }
-
-      // Check if email already exists (exclude current barber)
-      const existingEmail = await Barber.findOne({
-        _id: { $ne: id },
-        email: email.toLowerCase()
-      });
-
-      if (existingEmail) {
-        return res.status(400).json({
-          success: false,
-          message: "Email already exists"
-        });
-      }
     }
 
     // Check if phone already exists (exclude current barber)
@@ -252,7 +234,6 @@ const updateBarber = async (req, res) => {
 
     // Update fields only if they are provided and not empty
     if (name && name.trim()) barber.name = name.trim();
-    if (email && email.trim()) barber.email = email.toLowerCase().trim();
     if (phone && phone.trim()) barber.phone = phone.trim();
     if (isActive !== null && isActive !== undefined) {
       barber.isActive = isActive === 'true' || isActive === true;
@@ -294,7 +275,6 @@ const updateBarber = async (req, res) => {
       }
     }
 
-    // Handle duplicate key errors
     if (error.code === 11000) {
       const field = Object.keys(error.keyPattern)[0];
       return res.status(400).json({

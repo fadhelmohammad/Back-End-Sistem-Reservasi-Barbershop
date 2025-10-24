@@ -10,20 +10,6 @@ const barberSchema = new mongoose.Schema({
     required: true,
     trim: true,
   },
-  email: {
-    type: String,
-    required: true,
-    unique: true,
-    trim: true,
-    lowercase: true,
-    validate: {
-      validator: function(email) {
-        // Email validation regex
-        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-      },
-      message: 'Please enter a valid email address'
-    }
-  },
   phone: {
     type: String,
     required: true,

@@ -1,15 +1,13 @@
-// Create file: middleware/uploadMiddleware.js
+// middleware/uploadMiddleware.js
 const multer = require('multer');
 const { storage } = require('../config/cloudinary');
 
-// Multer upload configuration
 const upload = multer({
   storage: storage,
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB limit
   },
   fileFilter: (req, file, cb) => {
-    // Check file type
     if (file.mimetype.startsWith('image/')) {
       cb(null, true);
     } else {
@@ -18,12 +16,13 @@ const upload = multer({
   },
 });
 
-// Single file upload for barber photo
 const uploadBarberPhoto = upload.single('photo');
 
-// Middleware with error handling
 const handleUpload = (req, res, next) => {
   uploadBarberPhoto(req, res, (err) => {
+    console.log('Multer middleware - req.body:', req.body);
+    console.log('Multer middleware - req.file:', req.file);
+    
     if (err instanceof multer.MulterError) {
       if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({
@@ -42,6 +41,7 @@ const handleUpload = (req, res, next) => {
         message: err.message
       });
     }
+    
     next();
   });
 };
