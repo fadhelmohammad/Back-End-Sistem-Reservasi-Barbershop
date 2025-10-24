@@ -182,8 +182,19 @@ const createBarber = async (req, res) => {
 // Update barber (simplified)
 const updateBarber = async (req, res) => {
   try {
+    console.log('req.body:', req.body);
+    console.log('req.file:', req.file);
+    console.log('Content-Type:', req.headers['content-type']);
+    
     const { id } = req.params;
-    const { name, email, phone, isActive } = req.body;
+    
+    // Safe destructuring with fallback
+    const name = req.body?.name || null;
+    const email = req.body?.email || null;
+    const phone = req.body?.phone || null;
+    const isActive = req.body?.isActive || null;
+
+    console.log('Extracted values:', { name, email, phone, isActive });
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -201,7 +212,7 @@ const updateBarber = async (req, res) => {
     }
 
     // Validate email format if provided
-    if (email) {
+    if (email && email.trim()) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) {
         return res.status(400).json({
@@ -225,10 +236,10 @@ const updateBarber = async (req, res) => {
     }
 
     // Check if phone already exists (exclude current barber)
-    if (phone) {
+    if (phone && phone.trim()) {
       const existingPhone = await Barber.findOne({
         _id: { $ne: id },
-        phone
+        phone: phone.trim()
       });
 
       if (existingPhone) {
@@ -239,11 +250,13 @@ const updateBarber = async (req, res) => {
       }
     }
 
-    // Update fields
-    if (name) barber.name = name.trim();
-    if (email) barber.email = email.toLowerCase().trim();
-    if (phone) barber.phone = phone.trim();
-    if (typeof isActive === 'boolean') barber.isActive = isActive;
+    // Update fields only if they are provided and not empty
+    if (name && name.trim()) barber.name = name.trim();
+    if (email && email.trim()) barber.email = email.toLowerCase().trim();
+    if (phone && phone.trim()) barber.phone = phone.trim();
+    if (isActive !== null && isActive !== undefined) {
+      barber.isActive = isActive === 'true' || isActive === true;
+    }
 
     // Handle photo update
     if (req.file) {
@@ -271,6 +284,8 @@ const updateBarber = async (req, res) => {
       data: barber
     });
   } catch (error) {
+    console.error('Update barber error:', error);
+    
     if (req.file && req.file.filename) {
       try {
         await cloudinary.uploader.destroy(req.file.filename);
