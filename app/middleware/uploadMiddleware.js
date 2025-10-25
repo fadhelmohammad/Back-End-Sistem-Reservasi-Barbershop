@@ -1,37 +1,17 @@
 // middleware/uploadMiddleware.js
 const multer = require('multer');
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
-const cloudinary = require('../config/cloudinary');
 
-// Test Cloudinary connection
-const testCloudinaryConnection = async () => {
-  try {
-    const result = await cloudinary.api.ping();
-    console.log('Cloudinary connection successful:', result);
-  } catch (error) {
-    console.error('Cloudinary connection failed:', error.message);
-  }
-};
-
-// Call test function
-testCloudinaryConnection();
-
-// Cloudinary storage configuration
-const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: 'barbers', // Folder di Cloudinary
-    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
-    transformation: [
-      { width: 500, height: 500, crop: 'fill' }, // Resize image
-      { quality: 'auto' } // Optimize quality
-    ]
-  },
-});
+// Use memory storage untuk manual upload
+const storage = multer.memoryStorage();
 
 // File filter
 const fileFilter = (req, file, cb) => {
-  // Check file type
+  // Check if file exists and has mimetype
+  if (!file || !file.mimetype) {
+    cb(new Error('Invalid file'), false);
+    return;
+  }
+
   if (file.mimetype.startsWith('image/')) {
     cb(null, true);
   } else {
@@ -39,7 +19,7 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Configure multer with error handling
+// Configure multer
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,

@@ -1,13 +1,19 @@
 const Barber = require("../models/Barber");
 const cloudinary = require('../config/cloudinary');
-const streamifier = require('streamifier');
 
-// Helper function to upload to Cloudinary
+// Helper function to upload to Cloudinary with better error handling
 const uploadToCloudinary = (fileBuffer, folder = 'barbers') => {
   return new Promise((resolve, reject) => {
-    const uploadStream = cloudinary.uploader.upload_stream(
+    // Validate buffer
+    if (!fileBuffer || !Buffer.isBuffer(fileBuffer)) {
+      reject(new Error('Invalid file buffer'));
+      return;
+    }
+
+    cloudinary.uploader.upload_stream(
       {
         folder: folder,
+        resource_type: 'image',
         transformation: [
           { width: 500, height: 500, crop: 'fill' },
           { quality: 'auto' }
@@ -15,14 +21,13 @@ const uploadToCloudinary = (fileBuffer, folder = 'barbers') => {
       },
       (error, result) => {
         if (error) {
+          console.error('Cloudinary upload error:', error);
           reject(error);
         } else {
           resolve(result);
         }
       }
-    );
-
-    streamifier.createReadStream(fileBuffer).pipe(uploadStream);
+    ).end(fileBuffer);
   });
 };
 
@@ -79,10 +84,14 @@ const getBarberById = async (req, res) => {
   }
 };
 
-// Create new barber with manual photo upload
+// Create new barber
 const createBarber = async (req, res) => {
   try {
     let { name, phone } = req.body;
+    
+    // Debug logs
+    console.log('Request body:', req.body);
+    console.log('Request file:', req.file);
     
     // Normalize input
     name = name?.trim();
@@ -97,7 +106,7 @@ const createBarber = async (req, res) => {
     }
 
     // Check if photo is uploaded
-    if (!req.file) {
+    if (!req.file || !req.file.buffer) {
       return res.status(400).json({
         success: false,
         message: "Photo is required"
@@ -115,9 +124,11 @@ const createBarber = async (req, res) => {
     }
 
     // Upload image to Cloudinary
+    console.log('Uploading to Cloudinary...');
     const uploadResult = await uploadToCloudinary(req.file.buffer, 'barbers');
+    console.log('Cloudinary upload result:', uploadResult.secure_url);
 
-    // Create barber with Cloudinary photo URL
+    // Create barber
     const barber = new Barber({
       name,
       phone,
@@ -151,11 +162,14 @@ const createBarber = async (req, res) => {
   }
 };
 
-// Update barber with optional photo upload
+// Update barber
 const updateBarber = async (req, res) => {
   try {
     const { id } = req.params;
     const { name, phone, isActive } = req.body;
+    
+    console.log('Update request body:', req.body);
+    console.log('Update request file:', req.file);
     
     // Check if barber exists
     const existingBarber = await Barber.findById(id);
@@ -173,21 +187,27 @@ const updateBarber = async (req, res) => {
     if (isActive !== undefined) updateData.isActive = isActive;
     
     // If new photo is uploaded
-    if (req.file) {
+    if (req.file && req.file.buffer) {
       try {
-        // Upload new image to Cloudinary
+        console.log('Uploading new photo to Cloudinary...');
         const uploadResult = await uploadToCloudinary(req.file.buffer, 'barbers');
         updateData.photo = uploadResult.secure_url;
+        console.log('New photo uploaded:', uploadResult.secure_url);
 
         // Delete old image from Cloudinary if exists
         const oldPhotoUrl = existingBarber.photo;
         if (oldPhotoUrl && oldPhotoUrl.includes('cloudinary.com')) {
-          const urlParts = oldPhotoUrl.split('/');
-          const fileWithExtension = urlParts[urlParts.length - 1];
-          const folderPath = urlParts.slice(-2, -1)[0];
-          const publicId = `${folderPath}/${fileWithExtension.split('.')[0]}`;
-          
-          await cloudinary.uploader.destroy(publicId);
+          try {
+            const urlParts = oldPhotoUrl.split('/');
+            const fileWithExtension = urlParts[urlParts.length - 1];
+            const folderPath = urlParts.slice(-2, -1)[0];
+            const publicId = `${folderPath}/${fileWithExtension.split('.')[0]}`;
+            
+            await cloudinary.uploader.destroy(publicId);
+            console.log('Old photo deleted from Cloudinary');
+          } catch (deleteError) {
+            console.error('Error deleting old photo:', deleteError);
+          }
         }
       } catch (uploadError) {
         console.error('Photo upload error:', uploadError);
@@ -321,7 +341,7 @@ const deactivateBarber = async (req, res) => {
   }
 };
 
-// Toggle barber status (activate/deactivate)
+// Toggle barber status
 const toggleBarberStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -335,7 +355,6 @@ const toggleBarberStatus = async (req, res) => {
       });
     }
 
-    // Toggle status
     barber.isActive = !barber.isActive;
     await barber.save();
     
@@ -355,7 +374,7 @@ const toggleBarberStatus = async (req, res) => {
   }
 };
 
-// Delete barber (permanent delete)
+// Delete barber
 const deleteBarber = async (req, res) => {
   try {
     const { id } = req.params;
@@ -379,12 +398,12 @@ const deleteBarber = async (req, res) => {
         const publicId = `${folderPath}/${fileWithExtension.split('.')[0]}`;
         
         await cloudinary.uploader.destroy(publicId);
+        console.log('Photo deleted from Cloudinary');
       } catch (deleteError) {
         console.error('Error deleting photo from Cloudinary:', deleteError);
       }
     }
 
-    // Permanent delete
     await Barber.findByIdAndDelete(id);
     
     res.status(200).json({
@@ -405,7 +424,7 @@ const deleteBarber = async (req, res) => {
   }
 };
 
-// Get active barbers only
+// Get active barbers
 const getActiveBarbers = async (req, res) => {
   try {
     const barbers = await Barber.find({ isActive: true }).sort({ name: 1 });
@@ -424,7 +443,7 @@ const getActiveBarbers = async (req, res) => {
   }
 };
 
-// Get inactive barbers only
+// Get inactive barbers
 const getInactiveBarbers = async (req, res) => {
   try {
     const barbers = await Barber.find({ isActive: false }).sort({ name: 1 });
