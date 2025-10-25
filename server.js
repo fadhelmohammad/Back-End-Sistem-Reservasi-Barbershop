@@ -29,7 +29,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.get("/", (req, res) => {
-    res.send("Hello World")
+    res.send("Hello World padel")
 });
 app.use("/auth", authRoutes);
 app.use("/reservations", reservationRoutes);
