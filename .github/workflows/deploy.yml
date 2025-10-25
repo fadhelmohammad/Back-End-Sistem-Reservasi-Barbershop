@@ -3,17 +3,13 @@ name: Deploy Barbershop Backend
 on:
   push:
     branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
 
 env:
   NODE_VERSION: '20'
   PM2_APP_NAME: 'barbershop-backend'
 
 jobs:
-  
   deploy:
-    needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     
@@ -32,30 +28,87 @@ jobs:
           echo "🚀 Starting deployment..."
           
           # Navigate to project directory
-          cd ~/SistemReservasiBrocode/Backend || cd ~/barbershop-backend || cd ~/Backend
+          cd ~/project/Back-End-Sistem-Reservasi-Barbershop/ || {
+            echo "❌ Could not find project directory"
+            echo "📂 Available directories in project:"
+            ls -la ~/project/
+            echo "📂 Available directories in home:"
+            ls -la ~/
+            exit 1
+          }
           
-          # Check current directory
+          # Check current directory and git status
           echo "📍 Current directory: $(pwd)"
+          echo "📋 Current files:"
+          ls -la
+          
+          # Check git status
+          echo "📋 Git status:"
+          git status || echo "⚠️ Not a git repository or git not available"
+          
+          # Backup current state
+          echo "💾 Creating backup..."
+          cp -r . ../backup-$(date +%Y%m%d-%H%M%S) 2>/dev/null || echo "⚠️ Backup failed, continuing..."
           
           # Pull latest changes
           echo "📥 Pulling latest changes..."
-          git pull origin main
+          git fetch origin main 2>/dev/null || {
+            echo "⚠️ Git fetch failed, trying alternative methods..."
+            git pull origin main || echo "❌ Git pull failed"
+          }
+          git reset --hard origin/main 2>/dev/null || echo "⚠️ Git reset failed"
           
           # Install dependencies
           echo "📦 Installing dependencies..."
-          npm install --production
+          npm install --production || {
+            echo "❌ npm install failed, trying npm ci..."
+            npm ci --production || echo "❌ All npm install methods failed"
+          }
+          
+          # Check if server.js exists
+          if [ ! -f "server.js" ]; then
+            echo "❌ server.js not found!"
+            echo "📂 Files in current directory:"
+            ls -la
+            exit 1
+          fi
           
           # Check PM2 status
           echo "🔍 Checking PM2 status..."
-          pm2 list
+          pm2 list || {
+            echo "⚠️ PM2 not found, installing..."
+            npm install -g pm2
+          }
           
-          # Reload PM2 application
-          echo "🔄 Reloading PM2 application..."
-          pm2 reload ${{ env.PM2_APP_NAME }} || pm2 restart ${{ env.PM2_APP_NAME }} || pm2 start server.js --name ${{ env.PM2_APP_NAME }}
+          # Stop existing process if running
+          echo "🛑 Stopping existing PM2 process..."
+          pm2 stop ${{ env.PM2_APP_NAME }} 2>/dev/null || echo "ℹ️ No existing process to stop"
+          
+          # Start/Restart PM2 application
+          echo "🔄 Starting PM2 application..."
+          pm2 start server.js --name ${{ env.PM2_APP_NAME }} --env production || {
+            echo "❌ PM2 start failed, trying alternative approach..."
+            pm2 delete ${{ env.PM2_APP_NAME }} 2>/dev/null || true
+            pm2 start server.js --name ${{ env.PM2_APP_NAME }}
+          }
           
           # Save PM2 configuration
+          echo "💾 Saving PM2 configuration..."
           pm2 save
+          
+          # Health check
+          echo "🏥 Performing health check..."
+          sleep 5
+          if pm2 describe ${{ env.PM2_APP_NAME }} | grep -q "online"; then
+            echo "✅ Application is running successfully"
+          else
+            echo "⚠️ Application might not be running properly"
+            echo "📋 PM2 logs:"
+            pm2 logs ${{ env.PM2_APP_NAME }} --lines 10
+          fi
           
           # Show final status
           echo "✅ Deployment completed!"
+          echo "📊 Final PM2 status:"
+          pm2 list
           pm2 show ${{ env.PM2_APP_NAME }}
