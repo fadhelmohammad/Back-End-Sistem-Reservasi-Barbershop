@@ -27,6 +27,12 @@ jobs:
         script: |
           echo "🚀 Starting deployment..."
           
+          # Source common paths
+          export PATH=$PATH:/usr/local/bin:/usr/bin:/bin:~/.nvm/versions/node/*/bin:~/node_modules/.bin
+          source ~/.bashrc 2>/dev/null || true
+          source ~/.profile 2>/dev/null || true
+          source ~/.nvm/nvm.sh 2>/dev/null || true
+          
           # Navigate to project directory
           cd ~/project/Back-End-Sistem-Reservasi-Barbershop/ || {
             echo "❌ Could not find project directory"
@@ -37,10 +43,48 @@ jobs:
             exit 1
           }
           
-          # Check current directory and git status
+          # Check current directory
           echo "📍 Current directory: $(pwd)"
           echo "📋 Current files:"
           ls -la
+          
+          # Check Node.js and npm
+          echo "🔍 Checking Node.js and npm..."
+          which node || echo "❌ Node.js not found in PATH"
+          which npm || echo "❌ npm not found in PATH"
+          which pm2 || echo "❌ PM2 not found in PATH"
+          
+          # Try to find Node.js installation
+          if ! command -v node >/dev/null 2>&1; then
+            echo "🔍 Searching for Node.js installation..."
+            NODE_PATH=$(find /usr -name "node" -type f 2>/dev/null | head -1)
+            if [ -n "$NODE_PATH" ]; then
+              echo "✅ Found Node.js at: $NODE_PATH"
+              export PATH=$(dirname $NODE_PATH):$PATH
+            else
+              echo "❌ Node.js not found. Please install Node.js on the server."
+              exit 1
+            fi
+          fi
+          
+          # Try to find npm
+          if ! command -v npm >/dev/null 2>&1; then
+            echo "🔍 Searching for npm..."
+            NPM_PATH=$(find /usr -name "npm" -type f 2>/dev/null | head -1)
+            if [ -n "$NPM_PATH" ]; then
+              echo "✅ Found npm at: $NPM_PATH"
+              export PATH=$(dirname $NPM_PATH):$PATH
+            else
+              echo "❌ npm not found. Please install npm on the server."
+              exit 1
+            fi
+          fi
+          
+          # Show versions
+          echo "📋 Environment info:"
+          node --version || echo "❌ Node.js not working"
+          npm --version || echo "❌ npm not working"
+          pm2 --version || echo "⚠️ PM2 not installed"
           
           # Check git status
           echo "📋 Git status:"
@@ -62,7 +106,12 @@ jobs:
           echo "📦 Installing dependencies..."
           npm install --production || {
             echo "❌ npm install failed, trying npm ci..."
-            npm ci --production || echo "❌ All npm install methods failed"
+            npm ci --production || {
+              echo "❌ All npm install methods failed"
+              echo "🔍 Checking npm configuration..."
+              npm config list || echo "❌ npm config failed"
+              exit 1
+            }
           }
           
           # Check if server.js exists
@@ -73,23 +122,42 @@ jobs:
             exit 1
           fi
           
+          # Install PM2 if not found
+          if ! command -v pm2 >/dev/null 2>&1; then
+            echo "📦 Installing PM2..."
+            npm install -g pm2 || {
+              echo "❌ Failed to install PM2 globally, trying local install..."
+              npm install pm2 || {
+                echo "❌ Failed to install PM2"
+                exit 1
+              }
+              export PATH=$PATH:./node_modules/.bin
+            }
+          fi
+          
           # Check PM2 status
           echo "🔍 Checking PM2 status..."
           pm2 list || {
-            echo "⚠️ PM2 not found, installing..."
-            npm install -g pm2
+            echo "❌ PM2 command failed"
+            exit 1
           }
           
           # Stop existing process if running
           echo "🛑 Stopping existing PM2 process..."
           pm2 stop ${{ env.PM2_APP_NAME }} 2>/dev/null || echo "ℹ️ No existing process to stop"
           
-          # Start/Restart PM2 application
+          # Delete existing process
+          pm2 delete ${{ env.PM2_APP_NAME }} 2>/dev/null || echo "ℹ️ No existing process to delete"
+          
+          # Start PM2 application
           echo "🔄 Starting PM2 application..."
           pm2 start server.js --name ${{ env.PM2_APP_NAME }} --env production || {
-            echo "❌ PM2 start failed, trying alternative approach..."
-            pm2 delete ${{ env.PM2_APP_NAME }} 2>/dev/null || true
-            pm2 start server.js --name ${{ env.PM2_APP_NAME }}
+            echo "❌ PM2 start failed"
+            echo "📋 Current directory contents:"
+            ls -la
+            echo "📋 PM2 logs:"
+            pm2 logs || true
+            exit 1
           }
           
           # Save PM2 configuration
@@ -103,12 +171,13 @@ jobs:
             echo "✅ Application is running successfully"
           else
             echo "⚠️ Application might not be running properly"
+            echo "📋 PM2 status:"
+            pm2 show ${{ env.PM2_APP_NAME }} || true
             echo "📋 PM2 logs:"
-            pm2 logs ${{ env.PM2_APP_NAME }} --lines 10
+            pm2 logs ${{ env.PM2_APP_NAME }} --lines 20 || true
           fi
           
           # Show final status
           echo "✅ Deployment completed!"
           echo "📊 Final PM2 status:"
           pm2 list
-          pm2 show ${{ env.PM2_APP_NAME }}
