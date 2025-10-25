@@ -1,49 +1,51 @@
 // middleware/uploadMiddleware.js
 const multer = require('multer');
-const { storage } = require('../config/cloudinary');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const cloudinary = require('../config/cloudinary');
 
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-  },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('File harus berupa gambar (jpg, jpeg, png, webp)'), false);
-    }
+// Test Cloudinary connection
+const testCloudinaryConnection = async () => {
+  try {
+    const result = await cloudinary.api.ping();
+    console.log('Cloudinary connection successful:', result);
+  } catch (error) {
+    console.error('Cloudinary connection failed:', error.message);
+  }
+};
+
+// Call test function
+testCloudinaryConnection();
+
+// Cloudinary storage configuration
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'barbers', // Folder di Cloudinary
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [
+      { width: 500, height: 500, crop: 'fill' }, // Resize image
+      { quality: 'auto' } // Optimize quality
+    ]
   },
 });
 
-const uploadBarberPhoto = upload.single('photo');
-
-const handleUpload = (req, res, next) => {
-  uploadBarberPhoto(req, res, (err) => {
-    console.log('Multer middleware - req.body:', req.body);
-    console.log('Multer middleware - req.file:', req.file);
-    
-    if (err instanceof multer.MulterError) {
-      if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({
-          success: false,
-          message: 'File terlalu besar. Maksimal 5MB.'
-        });
-      }
-      return res.status(400).json({
-        success: false,
-        message: 'Error upload file',
-        error: err.message
-      });
-    } else if (err) {
-      return res.status(400).json({
-        success: false,
-        message: err.message
-      });
-    }
-    
-    next();
-  });
+// File filter
+const fileFilter = (req, file, cb) => {
+  // Check file type
+  if (file.mimetype.startsWith('image/')) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only image files are allowed!'), false);
+  }
 };
 
-module.exports = { handleUpload };
+// Configure multer with error handling
+const upload = multer({
+  storage: storage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+});
+
+module.exports = upload;

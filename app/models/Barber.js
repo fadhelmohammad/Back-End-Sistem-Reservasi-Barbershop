@@ -3,44 +3,54 @@ const mongoose = require("mongoose");
 const barberSchema = new mongoose.Schema({
   barberId: {
     type: String,
-    unique: true,
+    unique: true,   
   },
-  name: {
-    type: String,
+  name: { 
+    type: String, 
     required: true,
-    trim: true,
+    set: function(value) {
+      return value
+        .toLowerCase()
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+    }
   },
   phone: {
     type: String,
     required: true,
     unique: true,
-    trim: true,
-  },
-  // Photo fields
-  photo: {
-    url: {
-      type: String,
-      default: null
+    validate: {
+      validator: function(v) {
+        return /^(\+62|62|0)8[1-9][0-9]{6,9}$/.test(v);
+      },
+      message: 'Phone number must be a valid Indonesian mobile number'
     },
-    publicId: {
-      type: String,
-      default: null
+    set: function(value) {
+      if (value.startsWith('+62')) {
+        return '0' + value.slice(3);
+      } else if (value.startsWith('62')) {
+        return '0' + value.slice(2);
+      }
+      return value;
     }
+  },
+  photo: {
+    type: String,
+    required: true
   },
   isActive: {
     type: Boolean,
-    default: true,
+    default: true
   }
-}, { 
-  timestamps: true 
-});
+}, { timestamps: true });
 
-// Pre-save middleware untuk generate barberId
 barberSchema.pre('save', async function(next) {
   if (!this.barberId) {
-    const timestamp = Date.now().toString();
-    const random = Math.floor(Math.random() * 10000);
-    this.barberId = `BBR-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${random}`;
+    const date = new Date(this.createdAt || Date.now());
+    const dateStr = date.toISOString().slice(0,10).replace(/-/g, '');
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    this.barberId = `BARBER-${dateStr}-${randomNum}`;
   }
   next();
 });

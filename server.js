@@ -11,6 +11,7 @@ const packageRoutes = require("./app/routes/packageRoutes");
 const dashboardRoutes = require("./app/routes/dashboardRoutes");
 const cashierRoutes = require("./app/routes/cashierRoutes");
 const adminRoutes = require("./app/routes/adminRoutes");
+const customerRoutes = require("./app/routes/customerRoutes");
 
 const cors = require("cors");
 
@@ -38,5 +39,6 @@ app.use("/admins", adminRoutes);
 app.use("/packages/", packageRoutes);
 app.use("/dashboard", dashboardRoutes);
 app.use("/cashiers", cashierRoutes);
+app.use("/customers", customerRoutes);
 
 app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
