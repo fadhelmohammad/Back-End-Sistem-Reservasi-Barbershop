@@ -17,7 +17,12 @@
     "reset:data": "node scripts/resetData.js",
     "view-data": "node scripts/viewData.js",
     "clear:data": "node scripts/clearData.js",
-    "seed:fresh": "npm run clear:data && npm run seed"
+    "seed:fresh": "npm run clear:data && npm run seed",
+    "pm2:start": "pm2 start ecosystem.config.js --env production",
+    "pm2:reload": "pm2 reload barbershop-backend",
+    "pm2:stop": "pm2 stop barbershop-backend",
+    "pm2:delete": "pm2 delete barbershop-backend",
+    "pm2:logs": "pm2 logs barbershop-backend"
   },
   "repository": {
     "type": "git",

@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main, master ]
 
+env:
+  NODE_VERSION: '20'
+  PM2_APP_NAME: 'barbershop-backend'
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -17,19 +21,18 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: ${{ env.NODE_VERSION }}
         cache: 'npm'
-        cache-dependency-path: Backend/package-lock.json
 
     - name: Install dependencies
-      run: |
-        cd Backend
-        npm ci
+      run: npm ci
+
+    - name: Run linting
+      run: npm run lint
+      continue-on-error: true
 
     - name: Run tests
-      run: |
-        cd Backend
-        npm test
+      run: npm test
       env:
         NODE_ENV: test
 
@@ -43,16 +46,40 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Deploy to server
-      uses: appleboy/ssh-action@v1.0.0
+      uses: appleboy/ssh-action@v1.0.3
       with:
         host: ${{ secrets.HOST }}
         username: ${{ secrets.USERNAME }}
         key: ${{ secrets.SSH_PRIVATE_KEY }}
         port: ${{ secrets.PORT }}
         script: |
-          cd /path/to/your/project
+          echo "🚀 Starting deployment..."
+          
+          # Navigate to project directory
+          cd ~/SistemReservasiBrocode/Backend || cd ~/barbershop-backend || cd ~/Backend
+          
+          # Check current directory
+          echo "📍 Current directory: $(pwd)"
+          
+          # Pull latest changes
+          echo "📥 Pulling latest changes..."
           git pull origin main
-          cd Backend
+          
+          # Install dependencies
+          echo "📦 Installing dependencies..."
           npm install --production
-          pm2 reload barbershop-backend
+          
+          # Check PM2 status
+          echo "🔍 Checking PM2 status..."
+          pm2 list
+          
+          # Reload PM2 application
+          echo "🔄 Reloading PM2 application..."
+          pm2 reload ${{ env.PM2_APP_NAME }} || pm2 restart ${{ env.PM2_APP_NAME }} || pm2 start server.js --name ${{ env.PM2_APP_NAME }}
+          
+          # Save PM2 configuration
           pm2 save
+          
+          # Show final status
+          echo "✅ Deployment completed!"
+          pm2 show ${{ env.PM2_APP_NAME }}
