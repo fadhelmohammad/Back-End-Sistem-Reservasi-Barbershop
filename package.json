@@ -22,7 +22,10 @@
     "pm2:reload": "pm2 reload barbershop-backend",
     "pm2:stop": "pm2 stop barbershop-backend",
     "pm2:delete": "pm2 delete barbershop-backend",
-    "pm2:logs": "pm2 logs barbershop-backend"
+    "pm2:logs": "pm2 logs barbershop-backend",
+    "debug:packages": "node scripts/debugPackages.js",
+    "debug:db": "node scripts/debugPackages.js",
+    "fix:packageids": "node scripts/fixPackageIds.js"
   },
   "repository": {
     "type": "git",

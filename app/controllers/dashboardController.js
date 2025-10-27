@@ -8,7 +8,7 @@ const getDashboardStats = async (req, res) => {
     let totalCapster = 0;
     let totalLayanan = 0;
     let totalCustomer = 0;
-    let totalAdmin = 0;  // ← TAMBAH INI
+    let totalAdmin = 0;
     let totalReservasi = 0;
 
     // Count Barbers
@@ -18,15 +18,21 @@ const getDashboardStats = async (req, res) => {
       console.error('Error counting barbers:', error.message);
     }
 
-    // Count Packages dengan fallback
+    // Count Packages dengan import yang lebih robust
     try {
       const Package = require("../models/Package");
+      console.log('Package model loaded:', !!Package); // Debug log
+      
       if (Package && typeof Package.countDocuments === 'function') {
         totalLayanan = await Package.countDocuments({ isActive: true });
+        console.log('Total packages found:', totalLayanan); // Debug log
+      } else {
+        console.error('Package model is not properly loaded');
       }
     } catch (error) {
       console.error('Package model error:', error.message);
-      totalLayanan = 0; // Set ke 0 jika error
+      console.error('Package model stack:', error.stack);
+      totalLayanan = 0;
     }
 
     // Count Users (Customers)
@@ -36,7 +42,7 @@ const getDashboardStats = async (req, res) => {
       console.error('Error counting customers:', error.message);
     }
 
-    // Count Admins ← TAMBAH INI
+    // Count Admins
     try {
       totalAdmin = await User.countDocuments({ role: "admin" });
     } catch (error) {
@@ -57,7 +63,7 @@ const getDashboardStats = async (req, res) => {
         totalCapster,
         totalLayanan,
         totalCustomer,
-        totalAdmin,    // ← TAMBAH INI
+        totalAdmin,
         totalReservasi
       }
     });
