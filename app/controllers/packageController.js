@@ -58,7 +58,7 @@ const getPackageById = async (req, res) => {
   }
 };
 
-// Create new package
+// Create new package dengan retry mechanism
 const createPackage = async (req, res) => {
   try {
     const { name, price, description } = req.body;
@@ -91,20 +91,47 @@ const createPackage = async (req, res) => {
       });
     }
 
-    // Create package
-    const package = new Package({
-      name: name.trim(),
-      price,
-      description: description.trim()
-    });
+    // Create package dengan retry untuk duplikasi packageId
+    let package;
+    let maxRetries = 3;
+    let attempt = 0;
 
-    await package.save();
+    while (attempt < maxRetries) {
+      try {
+        package = new Package({
+          name: name.trim(),
+          price,
+          description: description.trim()
+        });
+
+        await package.save();
+        break; // Berhasil, keluar dari loop
+        
+      } catch (error) {
+        if (error.code === 11000 && error.keyPattern?.packageId) {
+          // Duplikasi packageId, coba lagi
+          attempt++;
+          if (attempt >= maxRetries) {
+            return res.status(500).json({
+              success: false,
+              message: "Unable to generate unique package ID. Please try again.",
+              error: "Package ID generation failed"
+            });
+          }
+          continue;
+        } else {
+          // Error lain, throw
+          throw error;
+        }
+      }
+    }
 
     res.status(201).json({
       success: true,
       message: "Package created successfully",
       data: package
     });
+    
   } catch (error) {
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(err => err.message);
@@ -112,6 +139,14 @@ const createPackage = async (req, res) => {
         success: false,
         message: "Validation error",
         errors: messages
+      });
+    }
+
+    if (error.code === 11000) {
+      let field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({
+        success: false,
+        message: `Duplicate ${field}. This ${field} already exists.`
       });
     }
 

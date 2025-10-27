@@ -38,11 +38,46 @@ const packageSchema = new mongoose.Schema({
   timestamps: true 
 });
 
-// Pre-save middleware
+// Pre-save middleware dengan retry mechanism
 packageSchema.pre('save', async function(next) {
   if (!this.packageId) {
-    const count = await this.constructor.countDocuments();
-    this.packageId = `PKG${String(count + 1).padStart(3, '0')}`;
+    let maxRetries = 10;
+    let attempt = 0;
+    
+    while (attempt < maxRetries) {
+      try {
+        // Get the highest existing packageId number
+        const lastPackage = await this.constructor
+          .findOne({}, {}, { sort: { 'packageId': -1 } });
+        
+        let nextNumber = 1;
+        if (lastPackage && lastPackage.packageId) {
+          const lastNumber = parseInt(lastPackage.packageId.replace('PKG', ''));
+          nextNumber = lastNumber + 1;
+        }
+        
+        const newPackageId = `PKG${String(nextNumber).padStart(3, '0')}`;
+        
+        // Check if this ID already exists
+        const existingPackage = await this.constructor.findOne({ packageId: newPackageId });
+        
+        if (!existingPackage) {
+          this.packageId = newPackageId;
+          break;
+        }
+        
+        attempt++;
+      } catch (error) {
+        if (attempt === maxRetries - 1) {
+          return next(error);
+        }
+        attempt++;
+      }
+    }
+    
+    if (attempt === maxRetries) {
+      return next(new Error('Unable to generate unique packageId after multiple attempts'));
+    }
   }
   next();
 });
