@@ -375,6 +375,98 @@ const getUserReservations = async (req, res) => {
   }
 };
 
+// Get all confirmed reservations
+const getConfirmedReservations = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+    
+    const skip = (page - 1) * limit;
+    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
+
+    // Query untuk reservation dengan status confirmed
+    const reservations = await Reservation.find({ status: 'confirmed' })
+      .populate('customer', 'name email phone userId')
+      .populate('package', 'name price description duration')
+      .populate('barber', 'name specialization')
+      .populate('schedule', 'scheduled_time')
+      .populate({
+        path: 'paymentId',
+        model: 'Payment',
+        select: 'paymentId amount paymentMethod status verifiedAt verifiedBy',
+        populate: {
+          path: 'verifiedBy',
+          select: 'name role'
+        }
+      })
+      .sort(sort)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    // Count total confirmed reservations
+    const totalConfirmed = await Reservation.countDocuments({ status: 'confirmed' });
+
+    // Format response
+    const formattedReservations = reservations.map(reservation => ({
+      _id: reservation._id,
+      reservationId: reservation.reservationId,
+      status: reservation.status,
+      customerName: reservation.customerName,
+      customerPhone: reservation.customerPhone,
+      notes: reservation.notes,
+      totalPrice: reservation.totalPrice,
+      
+      // Service details
+      customer: reservation.customer,
+      package: reservation.package,
+      barber: reservation.barber,
+      schedule: reservation.schedule,
+      
+      // Payment info
+      payment: reservation.paymentId ? {
+        paymentId: reservation.paymentId.paymentId,
+        amount: reservation.paymentId.amount,
+        paymentMethod: reservation.paymentId.paymentMethod,
+        status: reservation.paymentId.status,
+        verifiedAt: reservation.paymentId.verifiedAt,
+        verifiedBy: reservation.paymentId.verifiedBy
+      } : null,
+      
+      // Timestamps
+      createdAt: reservation.createdAt,
+      confirmedAt: reservation.confirmedAt,
+      updatedAt: reservation.updatedAt
+    }));
+
+    res.status(200).json({
+      success: true,
+      message: "Confirmed reservations retrieved successfully",
+      data: {
+        reservations: formattedReservations,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalConfirmed / limit),
+          totalItems: totalConfirmed,
+          itemsPerPage: parseInt(limit),
+          hasNextPage: page * limit < totalConfirmed,
+          hasPrevPage: page > 1
+        },
+        summary: {
+          totalConfirmed: totalConfirmed,
+          currentPageCount: formattedReservations.length
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get confirmed reservations error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Error retrieving confirmed reservations",
+      error: error.message
+    });
+  }
+};
+
 // Update reservation status (Admin only)
 const updateReservationStatus = async (req, res) => {
   try {
@@ -533,6 +625,7 @@ module.exports = {
   getAllReservations,
   getReservationById,
   getUserReservations,
+  getConfirmedReservations,
   updateReservationStatus,
   cancelReservation,
   deleteReservation

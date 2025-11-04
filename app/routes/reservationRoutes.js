@@ -9,6 +9,7 @@ const {
   getAllReservations,
   getReservationById,
   getUserReservations,
+  getConfirmedReservations, // TAMBAHAN INI
   updateReservationStatus,
   cancelReservation,
   deleteReservation
@@ -41,6 +42,7 @@ router.patch("/:id/cancel", authMiddleware, cancelReservation);
 
 // Admin & Cashier routes (ADMIN or CASHIER ACCESS)
 router.get("/", authMiddleware, checkRole(['ADMIN', 'cashier']), getAllReservations);
+router.get("/confirmed", authMiddleware, checkRole(['ADMIN', 'cashier']), getConfirmedReservations); // TAMBAHAN
 router.get("/:id", authMiddleware, checkRole(['ADMIN', 'cashier']), getReservationById);
 router.patch("/:id/status", authMiddleware, checkRole(['ADMIN', 'cashier']), updateReservationStatus);
 router.delete("/:id", authMiddleware, checkRole(['ADMIN', 'cashier']), deleteReservation);
