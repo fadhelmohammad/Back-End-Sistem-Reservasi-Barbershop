@@ -10,6 +10,8 @@
     "lint": "eslint .",
     "dev": "nodemon --watch app --watch server.js",
     "seed:users": "node scripts/seeders/userSeeder.js",
+    "seed:users:reset": "node scripts/seeders/userSeeder.js --reset",
+    "seed:users:update": "node scripts/seeders/userSeeder.js --update",
     "seed:barbers": "node scripts/seeders/barberSeeder.js",
     "seed:schedules": "node scripts/seeders/scheduleSeeder.js",
     "seed:packages": "node scripts/seeders/packageSeeder.js",
@@ -25,7 +27,12 @@
     "pm2:logs": "pm2 logs barbershop-backend",
     "debug:packages": "node scripts/debugPackages.js",
     "debug:db": "node scripts/debugPackages.js",
-    "fix:packageids": "node scripts/fixPackageIds.js"
+    "fix:packageids": "node scripts/fixPackageIds.js",
+    "generate:schedules": "node scripts/generateInitialSchedules.js",
+    "cleanup:schedules": "node scripts/manualCleanup.js",
+    "schedule:monthly": "node scripts/generateMonthlySchedules.js",
+    "test:seeder:users": "jest scripts/seeders/userSeeder.test.js",
+    "test:seeder:users:watch": "jest scripts/seeders/userSeeder.test.js --watch"
   },
   "repository": {
     "type": "git",
@@ -43,6 +50,7 @@
     "mongoose": "^8.18.2",
     "multer": "^2.0.2",
     "multer-storage-cloudinary": "^4.0.0",
+    "node-cron": "^3.0.3",
     "nodemon": "^3.1.10",
     "streamifier": "^0.1.1"
   },

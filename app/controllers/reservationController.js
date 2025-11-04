@@ -2,6 +2,7 @@ const Reservation = require("../models/Reservation");
 const Package = require("../models/Package");
 const Barber = require("../models/Barber");
 const Schedule = require("../models/Schedule");
+const User = require("../models/User");
 
 // Get available packages for reservation
 const getAvailablePackages = async (req, res) => {
@@ -92,27 +93,56 @@ const getAvailableSchedules = async (req, res) => {
 // Step 4: Create reservation
 const createReservation = async (req, res) => {
   try {
-    const { 
-      customerName, 
-      customerPhone, 
-      packageId, 
-      barberId, 
-      scheduleId, 
-      notes 
-    } = req.body;
-    const customerId = req.user.userId;
+    const { packageId, barberId, scheduleId, notes, customerData } = req.body;
+    const userIdentifier = req.user.userId || req.user.id;
 
-    // Validate customer data
-    if (!customerName || !customerPhone) {
+    // Validate required fields
+    if (!packageId || !barberId || !scheduleId) {
       return res.status(400).json({
         success: false,
-        message: "Customer name and phone are required"
+        message: "Package, barber, and schedule are required"
       });
     }
 
+    // Get user data and MongoDB _id
+    let user;
+    if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
+      user = await User.findOne({ userId: userIdentifier }).select('_id name phone email userId');
+    } else {
+      user = await User.findById(userIdentifier).select('_id name phone email userId');
+    }
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // Determine customer info
+    let customerInfo = {};
+    
+    if (customerData && customerData.name && customerData.phone) {
+      // Manual customer data (booking for others)
+      customerInfo = {
+        name: customerData.name,
+        phone: customerData.phone,
+        email: customerData.email || "",
+        isOwnProfile: customerData.isOwnProfile || false
+      };
+    } else {
+      // Use profile data (booking for self)
+      customerInfo = {
+        name: user.name,
+        phone: user.phone,
+        email: user.email,
+        isOwnProfile: true
+      };
+    }
+
     // Validate package exists
-    const selectedPackage = await Package.findById(packageId);
-    if (!selectedPackage) {
+    const package = await Package.findById(packageId);
+    if (!package) {
       return res.status(404).json({
         success: false,
         message: "Package not found"
@@ -120,70 +150,79 @@ const createReservation = async (req, res) => {
     }
 
     // Validate barber exists
-    const selectedBarber = await Barber.findById(barberId);
-    if (!selectedBarber) {
+    const barber = await Barber.findById(barberId);
+    if (!barber) {
       return res.status(404).json({
         success: false,
         message: "Barber not found"
       });
     }
 
-    // Validate schedule exists and is available
-    const selectedSchedule = await Schedule.findById(scheduleId);
-    if (!selectedSchedule) {
+    // Validate and update schedule
+    const schedule = await Schedule.findById(scheduleId);
+    if (!schedule) {
       return res.status(404).json({
         success: false,
         message: "Schedule not found"
       });
     }
 
-    if (selectedSchedule.status !== "available") {
+    if (schedule.status !== 'available') {
       return res.status(400).json({
         success: false,
-        message: "Selected schedule is not available"
+        message: "Selected time slot is no longer available"
       });
     }
 
-    // Check if schedule belongs to selected barber
-    if (selectedSchedule.barber.toString() !== barberId) {
-      return res.status(400).json({
-        success: false,
-        message: "Schedule does not belong to selected barber"
-      });
-    }
-
-    // Create reservation
+    // Create reservation using MongoDB _id for customer field
     const reservation = new Reservation({
-      customer: customerId,
-      customerName: customerName.trim(),
-      customerPhone: customerPhone.trim(),
+      customer: user._id,  // Use MongoDB _id, not userId string
       package: packageId,
       barber: barberId,
       schedule: scheduleId,
-      totalPrice: selectedPackage.price,
-      notes
+      customerName: customerInfo.name,
+      customerPhone: customerInfo.phone,
+      customerEmail: customerInfo.email,
+      totalPrice: package.price,
+      notes: notes || "",
+      status: "pending",
+      isOwnProfile: customerInfo.isOwnProfile
     });
 
     await reservation.save();
 
     // Update schedule status to booked
-    await Schedule.findByIdAndUpdate(scheduleId, { 
-      status: "booked" 
-    });
+    schedule.status = 'booked';
+    schedule.reservation = reservation._id;
+    await schedule.save();
 
-    // Populate reservation data for response
+    // Populate reservation for response
     const populatedReservation = await Reservation.findById(reservation._id)
-      .populate('customer', 'name email')
-      .populate('package', 'name price description')
-      .populate('barber', 'name email phone')
-      .populate('schedule', 'scheduled_time');
+      .populate({
+        path: 'customer',
+        select: 'name email phone userId'
+      })
+      .populate({
+        path: 'package',
+        select: 'name price description duration'
+      })
+      .populate({
+        path: 'barber',
+        select: 'name email phone specialization'
+      })
+      .populate({
+        path: 'schedule',
+        select: 'scheduled_time timeSlot date'
+      });
 
     res.status(201).json({
       success: true,
       message: "Reservation created successfully. Please wait for admin confirmation.",
       data: populatedReservation
     });
+
   } catch (error) {
+    console.error("Error creating reservation:", error);
     res.status(500).json({
       success: false,
       message: "Error creating reservation",
@@ -220,11 +259,27 @@ const getAllReservations = async (req, res) => {
 // Get reservation by ID
 const getReservationById = async (req, res) => {
   try {
-    const reservation = await Reservation.findById(req.params.id)
-      .populate('customer', 'name email')
-      .populate('package', 'name price description')
-      .populate('barber', 'name email phone')
-      .populate('schedule', 'scheduled_time');
+    const { id } = req.params;
+    const userIdentifier = req.user.userId || req.user.id;
+    const userRole = req.user.role;
+
+    const reservation = await Reservation.findById(id)
+      .populate({
+        path: 'customer',
+        select: 'name email phone userId'
+      })
+      .populate({
+        path: 'package',
+        select: 'name price description duration'
+      })
+      .populate({
+        path: 'barber',
+        select: 'name email phone specialization'
+      })
+      .populate({
+        path: 'schedule',
+        select: 'scheduled_time timeSlot date'
+      });
 
     if (!reservation) {
       return res.status(404).json({
@@ -233,12 +288,32 @@ const getReservationById = async (req, res) => {
       });
     }
 
+    // Check authorization - customer can only view their own reservations
+    if (userRole === 'customer') {
+      // Find user to get MongoDB _id for comparison
+      let user;
+      if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
+        user = await User.findOne({ userId: userIdentifier }).select('_id');
+      } else {
+        user = await User.findById(userIdentifier).select('_id');
+      }
+      
+      if (!user || !reservation.customer._id.equals(user._id)) {
+        return res.status(403).json({
+          success: false,
+          message: "Access denied. You can only view your own reservations."
+        });
+      }
+    }
+
     res.status(200).json({
       success: true,
       message: "Reservation retrieved successfully",
       data: reservation
     });
+
   } catch (error) {
+    console.error("Error retrieving reservation:", error);
     res.status(500).json({
       success: false,
       message: "Error retrieving reservation",
@@ -250,20 +325,48 @@ const getReservationById = async (req, res) => {
 // Get user's reservations
 const getUserReservations = async (req, res) => {
   try {
-    const customerId = req.user.userId;
+    const userIdentifier = req.user.userId || req.user.id;
+    
+    // Find user first to get MongoDB _id
+    let user;
+    if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
+      user = await User.findOne({ userId: userIdentifier }).select('_id name email');
+    } else {
+      user = await User.findById(userIdentifier).select('_id name email');
+    }
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
 
-    const reservations = await Reservation.find({ customer: customerId })
-      .populate('package', 'name price description')
-      .populate('barber', 'name email phone')
-      .populate('schedule', 'scheduled_time')
+    // Query reservations using MongoDB _id
+    const reservations = await Reservation.find({ customer: user._id })
+      .populate({
+        path: 'package',
+        select: 'name price description duration'
+      })
+      .populate({
+        path: 'barber',
+        select: 'name email phone specialization'
+      })
+      .populate({
+        path: 'schedule',
+        select: 'scheduled_time timeSlot date'
+      })
       .sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
       message: "User reservations retrieved successfully",
-      data: reservations
+      data: reservations,
+      count: reservations.length
     });
+
   } catch (error) {
+    console.error("Error retrieving user reservations:", error);
     res.status(500).json({
       success: false,
       message: "Error retrieving user reservations",
@@ -312,12 +415,24 @@ const updateReservationStatus = async (req, res) => {
 const cancelReservation = async (req, res) => {
   try {
     const { id } = req.params;
-    const customerId = req.user.userId;
+    const userIdentifier = req.user.userId || req.user.id;
 
-    const reservation = await Reservation.findOne({ 
-      _id: id, 
-      customer: customerId 
-    });
+    // Find user first
+    let user;
+    if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
+      user = await User.findOne({ userId: userIdentifier }).select('_id');
+    } else {
+      user = await User.findById(userIdentifier).select('_id');
+    }
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    const reservation = await Reservation.findById(id);
 
     if (!reservation) {
       return res.status(404).json({
@@ -326,27 +441,49 @@ const cancelReservation = async (req, res) => {
       });
     }
 
-    if (reservation.status === "completed") {
+    // Check if user owns this reservation
+    if (!reservation.customer.equals(user._id)) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. You can only cancel your own reservations."
+      });
+    }
+
+    // Check if reservation can be cancelled
+    if (!['pending', 'confirmed'].includes(reservation.status)) {
       return res.status(400).json({
         success: false,
-        message: "Cannot cancel completed reservation"
+        message: "Cannot cancel reservation. Current status does not allow cancellation."
       });
     }
 
     // Update reservation status
-    reservation.status = "cancelled";
+    reservation.status = 'cancelled';
+    reservation.cancelledAt = new Date();
+    reservation.cancelReason = 'Customer cancelled';
     await reservation.save();
 
-    // Make schedule available again
-    await Schedule.findByIdAndUpdate(reservation.schedule, { 
-      status: "available" 
-    });
+    // Free up the schedule
+    const schedule = await Schedule.findById(reservation.schedule);
+    if (schedule) {
+      schedule.status = 'available';
+      schedule.reservation = null;
+      await schedule.save();
+    }
 
     res.status(200).json({
       success: true,
-      message: "Reservation cancelled successfully"
+      message: "Reservation cancelled successfully",
+      data: {
+        _id: reservation._id,
+        status: reservation.status,
+        cancelledAt: reservation.cancelledAt,
+        cancelReason: reservation.cancelReason
+      }
     });
+
   } catch (error) {
+    console.error("Error cancelling reservation:", error);
     res.status(500).json({
       success: false,
       message: "Error cancelling reservation",

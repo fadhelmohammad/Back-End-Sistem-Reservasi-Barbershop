@@ -1,5 +1,4 @@
-// server.js
-require('dotenv').config(); // Tambahkan di paling atas
+require('dotenv').config();
 
 const express = require("express");
 const connectDB = require("./app/config/db");
@@ -13,8 +12,10 @@ const cashierRoutes = require("./app/routes/cashierRoutes");
 const adminRoutes = require("./app/routes/adminRoutes");
 const customerRoutes = require("./app/routes/customerRoutes");
 
-const cors = require("cors");
+// Import cron jobs
+const ScheduleJobs = require("./app/jobs/scheduleJobs");
 
+const cors = require("cors");
 
 // Connect to database
 connectDB();
@@ -41,4 +42,10 @@ app.use("/dashboard", dashboardRoutes);
 app.use("/cashiers", cashierRoutes);
 app.use("/customers", customerRoutes);
 
-app.listen(PORT, '0.0.0.0', () => console.log(`Server running on port ${PORT}`));
+// Initialize cron jobs
+ScheduleJobs.init();
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log('⏰ Scheduled jobs are active');
+});

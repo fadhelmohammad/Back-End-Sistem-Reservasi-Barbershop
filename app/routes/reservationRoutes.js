@@ -16,29 +16,33 @@ const {
 
 const {
   getRegisteredData,
-  validateCustomerData
+  getBookingOptions,
+  validateCustomerData,
+  setBookingType
 } = require("../controllers/customerDataController");
 
 const { authMiddleware, checkRole } = require("../middleware/authMiddleware");
 
-// Pre-reservation: Customer data
+// Pre-reservation: Customer data options (CUSTOMER ACCESS)
+router.get("/booking-options", authMiddleware, getBookingOptions);
+router.post("/set-booking-type", authMiddleware, setBookingType);
 router.get("/customer-data", authMiddleware, getRegisteredData);
 router.post("/validate-customer", authMiddleware, validateCustomerData);
 
-// Step-by-step reservation process (Public access untuk flexibility)
-router.get("/packages", getAvailablePackages);  // ← Ini untuk reservation flow
-router.get("/barbers", getAvailableBarbers);  
+// Step-by-step reservation process (PUBLIC/CUSTOMER ACCESS)
+router.get("/packages", getAvailablePackages);
+router.get("/barbers", getAvailableBarbers);
 router.get("/schedules/:barberId", getAvailableSchedules);
 
-// Customer routes
-router.post("/", authMiddleware, createReservation);
+// Customer routes (CUSTOMER ACCESS)
 router.get("/my-reservations", authMiddleware, getUserReservations);
+router.post("/", authMiddleware, createReservation);
 router.patch("/:id/cancel", authMiddleware, cancelReservation);
 
-// Admin routes
-router.get("/", authMiddleware, checkRole('ADMIN'), getAllReservations);
-router.get("/:id", authMiddleware, checkRole('ADMIN'), getReservationById);
-router.patch("/:id/status", authMiddleware, checkRole('ADMIN'), updateReservationStatus);
-router.delete("/:id", authMiddleware, checkRole('ADMIN'), deleteReservation);
+// Admin & Cashier routes (ADMIN or CASHIER ACCESS)
+router.get("/", authMiddleware, checkRole(['ADMIN', 'cashier']), getAllReservations);
+router.get("/:id", authMiddleware, checkRole(['ADMIN', 'cashier']), getReservationById);
+router.patch("/:id/status", authMiddleware, checkRole(['ADMIN', 'cashier']), updateReservationStatus);
+router.delete("/:id", authMiddleware, checkRole(['ADMIN', 'cashier']), deleteReservation);
 
 module.exports = router;

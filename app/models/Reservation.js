@@ -8,7 +8,7 @@ const reservationSchema = new mongoose.Schema({
   customer: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
-    required: true
+    required: false // Allow null for walk-in customers
   },
   customerName: {
     type: String,
@@ -19,6 +19,11 @@ const reservationSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true
+  },
+  customerEmail: {
+    type: String,
+    trim: true,
+    default: ""
   },
   package: {
     type: mongoose.Schema.Types.ObjectId,
@@ -41,12 +46,41 @@ const reservationSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ["pending", "confirmed", "in_progress", "completed", "cancelled"],
+    enum: ["pending", "confirmed", "in-progress", "completed", "cancelled"],
     default: "pending"
   },
   notes: {
     type: String,
     trim: true
+  },
+  serviceNotes: {
+    type: String,
+    trim: true
+  },
+  paymentMethod: {
+    type: String,
+    enum: ["cash", "card", "digital_wallet"],
+    default: "cash"
+  },
+  isWalkIn: {
+    type: Boolean,
+    default: false
+  },
+  isOwnProfile: {
+    type: Boolean,
+    default: true
+  },
+  createdBy: {
+    type: String, // userId of who created the reservation
+    required: false
+  },
+  completedBy: {
+    type: String, // userId of cashier who completed the service
+    required: false
+  },
+  completedAt: {
+    type: Date,
+    required: false
   }
 }, { 
   timestamps: true 

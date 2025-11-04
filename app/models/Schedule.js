@@ -1,40 +1,54 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 const scheduleSchema = new mongoose.Schema({
-  scheduleId: {
-    type: String,
-    unique: true,
-  },
   barber: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "Barber",
-    required: true,
+    ref: 'Barber',
+    required: true
+  },
+  date: {
+    type: Date,
+    required: true
+  },
+  timeSlot: {
+    type: String,
+    required: true // e.g., "09:00", "09:30", "10:00"
   },
   scheduled_time: {
     type: Date,
-    required: true,
+    required: true // Full datetime for the appointment
   },
   status: {
     type: String,
-    enum: ["available", "booked", "unavailable"],
-    default: "available",
+    enum: ['available', 'booked', 'unavailable', 'completed', 'expired'],
+    default: 'available'
   },
-  __v: { // OCC versioning
-    type: Number,
-    select: true,
+  reservation: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Reservation',
+    default: null
   },
-}, { timestamps: true });
-
-// Pre-save middleware untuk generate scheduleId
-scheduleSchema.pre('save', async function(next) {
-  if (!this.scheduleId) {
-    // Format: SCH-YYYYMMDD-XXXX (X adalah random number)
-    const date = new Date(this.scheduled_time);
-    const dateStr = date.toISOString().slice(0,10).replace(/-/g, '');
-    const randomNum = Math.floor(1000 + Math.random() * 9000); // 4 digit random number
-    this.scheduleId = `SCH-${dateStr}-${randomNum}`;
+  isDefaultSlot: {
+    type: Boolean,
+    default: true
+  },
+  dayOfWeek: {
+    type: Number, // 0=Sunday, 1=Monday, etc.
+    required: true
+  },
+  completedAt: {
+    type: Date,
+    default: null
   }
-  next();
+}, {
+  timestamps: true
 });
 
-module.exports = mongoose.model("Schedule", scheduleSchema);
+// Compound unique index untuk mencegah duplicate
+scheduleSchema.index({ barber: 1, date: 1, timeSlot: 1 }, { unique: true });
+
+// Index untuk query performance
+scheduleSchema.index({ status: 1, scheduled_time: 1 });
+scheduleSchema.index({ barber: 1, status: 1 });
+
+module.exports = mongoose.model('Schedule', scheduleSchema);

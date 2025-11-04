@@ -1,5 +1,6 @@
 const Schedule = require("../models/Schedule");
 const Barber = require("../models/Barber");
+const ScheduleService = require("../services/scheduleService");
 
 // Create schedule
 const createSchedule = async (req, res) => {
@@ -49,16 +50,68 @@ const createSchedule = async (req, res) => {
   }
 };
 
-// Get all schedules
+// Get all schedules dengan filter
 const getAllSchedules = async (req, res) => {
   try {
-    const schedules = await Schedule.find()
-      .populate('barber')
-      .sort({ scheduled_time: 1 });
+    const { 
+      barberId, 
+      date, 
+      status, 
+      startDate, 
+      endDate,
+      page = 1,
+      limit = 50,
+      includeExpired = false
+    } = req.query;
+
+    let query = {};
+
+    // Exclude expired schedules by default
+    if (!includeExpired) {
+      query.status = { $ne: "expired" };
+    }
+
+    if (barberId) query.barber = barberId;
+    if (status) {
+      if (includeExpired) {
+        query.status = status;
+      } else {
+        query.status = { $in: [status], $ne: "expired" };
+      }
+    }
+    
+    if (date) {
+      const searchDate = new Date(date);
+      query.date = {
+        $gte: new Date(searchDate.toDateString()),
+        $lt: new Date(searchDate.getTime() + 24 * 60 * 60 * 1000)
+      };
+    } else if (startDate && endDate) {
+      query.date = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      };
+    }
+
+    const skip = (page - 1) * limit;
+    const schedules = await Schedule.find(query)
+      .populate('barber', 'name email phone')
+      .populate('reservation', 'reservationId customer')
+      .sort({ date: 1, timeSlot: 1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Schedule.countDocuments(query);
 
     res.json({
       success: true,
-      data: schedules
+      message: "Schedules retrieved successfully",
+      data: schedules,
+      pagination: {
+        current: parseInt(page),
+        pages: Math.ceil(total / limit),
+        total
+      }
     });
   } catch (error) {
     res.status(500).json({
@@ -69,16 +122,58 @@ const getAllSchedules = async (req, res) => {
   }
 };
 
-// Get available schedules
+// Get available schedules untuk customer (reservation flow)
 const getAvailableSchedules = async (req, res) => {
   try {
-    const schedules = await Schedule.find({ status: "available" })
-      .populate('barber')
-      .sort({ scheduled_time: 1 });
+    const { barberId, date } = req.query;
+    const now = new Date();
+    
+    let query = { 
+      status: "available",
+      scheduled_time: { $gte: now } // Exclude past schedules
+    };
+    
+    if (barberId) {
+      query.barber = barberId;
+    }
+    
+    if (date) {
+      const searchDate = new Date(date);
+      const endOfDay = new Date(searchDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      
+      query.scheduled_time = {
+        $gte: new Date(Math.max(now.getTime(), searchDate.getTime())),
+        $lte: endOfDay
+      };
+    } else {
+      // Default: show next 7 days
+      const nextWeek = new Date();
+      nextWeek.setDate(now.getDate() + 7);
+      
+      query.scheduled_time.$lte = nextWeek;
+    }
+
+    const schedules = await Schedule.find(query)
+      .populate('barber', 'name specialization')
+      .sort({ scheduled_time: 1 })
+      .limit(100);
+
+    // Group by date untuk tampilan yang lebih baik
+    const groupedSchedules = {};
+    schedules.forEach(schedule => {
+      const dateKey = schedule.date.toISOString().split('T')[0];
+      if (!groupedSchedules[dateKey]) {
+        groupedSchedules[dateKey] = [];
+      }
+      groupedSchedules[dateKey].push(schedule);
+    });
 
     res.json({
       success: true,
-      data: schedules
+      message: "Available schedules retrieved successfully",
+      data: groupedSchedules,
+      totalSlots: schedules.length
     });
   } catch (error) {
     res.status(500).json({
@@ -89,11 +184,68 @@ const getAvailableSchedules = async (req, res) => {
   }
 };
 
-// Get schedule by ID
-const getScheduleById = async (req, res) => {
+// Generate default schedules (Admin only)
+const generateDefaultSchedules = async (req, res) => {
   try {
-    const schedule = await Schedule.findById(req.params.id).populate('barber');
-    
+    const { startDate, endDate, barberId } = req.body;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        success: false,
+        message: "Start date and end date are required"
+      });
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (start >= end) {
+      return res.status(400).json({
+        success: false,
+        message: "End date must be after start date"
+      });
+    }
+
+    const generatedCount = await ScheduleService.generateDefaultSchedules(
+      start, 
+      end, 
+      barberId
+    );
+
+    res.status(201).json({
+      success: true,
+      message: `Successfully generated ${generatedCount} default schedules`,
+      data: {
+        startDate,
+        endDate,
+        barberId,
+        generatedCount
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to generate default schedules",
+      error: error.message
+    });
+  }
+};
+
+// Update schedule status (Cashier function)
+const updateScheduleStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    // Validate status
+    if (!['available', 'unavailable'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Status must be 'available' or 'unavailable'"
+      });
+    }
+
+    const schedule = await Schedule.findById(id);
     if (!schedule) {
       return res.status(404).json({
         success: false,
@@ -101,14 +253,112 @@ const getScheduleById = async (req, res) => {
       });
     }
 
+    // Check if schedule is booked, completed, or expired
+    if (['booked', 'completed', 'expired'].includes(schedule.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot modify ${schedule.status} schedule`
+      });
+    }
+
+    const updatedSchedule = await Schedule.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true }
+    ).populate('barber', 'name');
+
     res.json({
       success: true,
-      data: schedule
+      message: `Schedule ${status === 'available' ? 'enabled' : 'disabled'} successfully`,
+      data: updatedSchedule
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Failed to fetch schedule",
+      message: "Failed to update schedule status",
+      error: error.message
+    });
+  }
+};
+
+// Manual cleanup trigger (Admin only)
+const performCleanup = async (req, res) => {
+  try {
+    const result = await ScheduleService.performScheduleCleanup();
+    
+    res.json({
+      success: true,
+      message: "Schedule cleanup completed successfully",
+      data: result
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to perform cleanup",
+      error: error.message
+    });
+  }
+};
+
+// Check expired schedules
+const checkExpired = async (req, res) => {
+  try {
+    const result = await ScheduleService.checkExpiredSchedules();
+    
+    res.json({
+      success: true,
+      message: "Expired schedules checked successfully",
+      data: result
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to check expired schedules",
+      error: error.message
+    });
+  }
+};
+
+// Bulk update schedule status untuk multiple slots
+const bulkUpdateScheduleStatus = async (req, res) => {
+  try {
+    const { scheduleIds, status } = req.body;
+
+    if (!scheduleIds || !Array.isArray(scheduleIds) || scheduleIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Schedule IDs array is required"
+      });
+    }
+
+    if (!['available', 'unavailable'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Status must be 'available' or 'unavailable'"
+      });
+    }
+
+    // Update only schedules that can be modified
+    const result = await Schedule.updateMany(
+      { 
+        _id: { $in: scheduleIds },
+        status: { $nin: ['booked', 'completed', 'expired'] }
+      },
+      { status }
+    );
+
+    res.json({
+      success: true,
+      message: `Successfully updated ${result.modifiedCount} schedules`,
+      data: {
+        modified: result.modifiedCount,
+        total: scheduleIds.length
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to bulk update schedules",
       error: error.message
     });
   }
@@ -118,5 +368,9 @@ module.exports = {
   createSchedule,
   getAllSchedules,
   getAvailableSchedules,
-  getScheduleById
+  generateDefaultSchedules,
+  updateScheduleStatus,
+  bulkUpdateScheduleStatus,
+  performCleanup,
+  checkExpired
 };
