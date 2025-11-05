@@ -4,6 +4,8 @@ const {
   getAllSchedules,
   getAvailableSchedules,
   generateDefaultSchedules,
+  generateSchedulesForBarber, // TAMBAHAN
+  getBarberScheduleStats, // TAMBAHAN
   updateScheduleStatus,
   bulkUpdateScheduleStatus,
   performCleanup,
@@ -26,5 +28,9 @@ router.get("/check-expired", authMiddleware, checkRole('ADMIN'), checkExpired);
 // Cashier routes untuk manage schedule availability
 router.put("/:id/status", authMiddleware, checkRole(['ADMIN', 'CASHIER']), updateScheduleStatus);
 router.put("/bulk/status", authMiddleware, checkRole(['ADMIN', 'CASHIER']), bulkUpdateScheduleStatus);
+
+// Barber-specific routes
+router.post('/generate/:barberId', authMiddleware, checkRole(['ADMIN','CASHIER']), generateSchedulesForBarber); // Fix role case
+router.get('/stats/:barberId', authMiddleware, checkRole(['ADMIN', 'CASHIER']), getBarberScheduleStats); // Fix role case
 
 module.exports = router;

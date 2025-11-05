@@ -4,27 +4,22 @@ const reservationSchema = new mongoose.Schema({
   reservationId: {
     type: String,
     unique: true,
+    required: true
   },
   customer: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
-    required: false // Allow null for walk-in customers
+    required: true
   },
   customerName: {
     type: String,
-    required: true,
-    trim: true
+    required: true
   },
   customerPhone: {
     type: String,
-    required: true,
-    trim: true
+    required: true
   },
-  customerEmail: {
-    type: String,
-    trim: true,
-    default: ""
-  },
+  customerEmail: String,
   package: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Package",
@@ -46,22 +41,35 @@ const reservationSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ["pending", "confirmed", "in-progress", "completed", "cancelled"],
+    enum: ["pending", "confirmed", "cancelled", "completed"],
     default: "pending"
   },
-  notes: {
-    type: String,
-    trim: true
-  },
-  serviceNotes: {
-    type: String,
-    trim: true
-  },
+  notes: String,
   paymentMethod: {
     type: String,
-    enum: ["cash", "card", "digital_wallet"],
+    enum: ["cash", "bank_transfer", "e_wallet"],
     default: "cash"
   },
+  
+  // TAMBAHAN: Payment reference
+  paymentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Payment"
+  },
+  
+  // TAMBAHAN: Tracking fields
+  confirmedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User"
+  },
+  confirmedAt: {
+    type: Date
+  },
+  cancelledAt: {
+    type: Date
+  },
+  cancelReason: String,
+  
   isWalkIn: {
     type: Boolean,
     default: false
@@ -69,28 +77,20 @@ const reservationSchema = new mongoose.Schema({
   isOwnProfile: {
     type: Boolean,
     default: true
-  },
-  createdBy: {
-    type: String, // userId of who created the reservation
-    required: false
-  },
-  completedBy: {
-    type: String, // userId of cashier who completed the service
-    required: false
-  },
-  completedAt: {
-    type: Date,
-    required: false
   }
-}, { 
-  timestamps: true 
+}, {
+  timestamps: true
 });
 
-// Pre-save middleware untuk generate reservationId
+// Generate reservationId before saving
 reservationSchema.pre('save', async function(next) {
   if (!this.reservationId) {
-    const count = await this.constructor.countDocuments();
-    this.reservationId = `RES${String(count + 1).padStart(4, '0')}`;
+    try {
+      const count = await this.constructor.countDocuments();
+      this.reservationId = `RES${String(count + 1).padStart(4, '0')}`;
+    } catch (error) {
+      return next(error);
+    }
   }
   next();
 });

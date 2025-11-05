@@ -1,6 +1,7 @@
 const Payment = require('../models/Payment');
 const Reservation = require('../models/Reservation');
 const cloudinary = require('../config/cloudinary');
+const User = require('../models/User');
 
 // Get payment methods (bank accounts & e-wallets)
 const getPaymentMethods = async (req, res) => {
@@ -553,7 +554,15 @@ const verifyPayment = async (req, res) => {
       // Jika payment verified, maka reservation otomatis confirmed
       reservation.status = 'confirmed';
       reservation.confirmedAt = new Date();
-      reservation.confirmedBy = req.user.userId || req.user.id;
+      
+      // TAMBAHAN: Track cashier yang confirm
+      if (typeof (req.user.userId || req.user.id) === 'string' && (req.user.userId || req.user.id).startsWith('USR-')) {
+        const cashier = await User.findOne({ userId: req.user.userId || req.user.id });
+        reservation.confirmedBy = cashier?._id;
+      } else {
+        reservation.confirmedBy = req.user.userId || req.user.id;
+      }
+      
     } else {
       // Jika payment rejected, maka reservation cancelled
       reservation.status = 'cancelled';
@@ -575,7 +584,8 @@ const verifyPayment = async (req, res) => {
         paymentStatus: payment.status,
         reservationStatus: reservation.status,
         verificationNote: payment.verificationNote,
-        actionTaken: status === 'verified' ? 'Reservation Confirmed' : 'Reservation Cancelled'
+        actionTaken: status === 'verified' ? 'Reservation Confirmed' : 'Reservation Cancelled',
+        confirmedBy: reservation.confirmedBy
       }
     });
 

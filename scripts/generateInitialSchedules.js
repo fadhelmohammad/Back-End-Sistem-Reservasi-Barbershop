@@ -21,10 +21,11 @@ const generateInitialSchedules = async () => {
     const generatedCount = await ScheduleService.generateDefaultSchedules(today, endDate);
 
     console.log(`🎉 Successfully generated ${generatedCount} default schedules!`);
-    console.log("\n📋 Schedule pattern:");
-    console.log("   Monday-Thursday & Saturday-Sunday: 11:00-18:00, 19:30-23:00");
+    console.log("\n📋 Schedule pattern (1 hour intervals):");
+    console.log("   Monday-Thursday & Saturday: 11:00-18:00, 19:00-23:00");
     console.log("   Friday: 13:00-23:00");
-    console.log("   Interval: 30 minutes");
+    console.log("   Sunday: CLOSED");
+    console.log("   Interval: 1 hour");
 
     await mongoose.connection.close();
     console.log("🔌 Database connection closed");

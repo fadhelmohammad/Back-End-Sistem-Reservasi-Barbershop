@@ -214,18 +214,169 @@ const generateDefaultSchedules = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: `Successfully generated ${generatedCount} default schedules`,
+      message: `Successfully generated ${generatedCount} default schedules with 1-hour intervals`,
       data: {
         startDate,
         endDate,
         barberId,
-        generatedCount
+        generatedCount,
+        schedulePattern: {
+          mondayToThursday: "11:00-18:00, 19:00-23:00",
+          friday: "13:00-23:00", 
+          saturday: "11:00-18:00, 19:00-23:00",
+          sunday: "CLOSED",
+          interval: "1 hour"
+        }
       }
     });
   } catch (error) {
     res.status(500).json({
       success: false,
       message: "Failed to generate default schedules",
+      error: error.message
+    });
+  }
+};
+
+// Generate schedules untuk barber tertentu (Manual trigger)
+const generateSchedulesForBarber = async (req, res) => {
+  try {
+    const { barberId } = req.params;
+    const { days = 30 } = req.body;
+
+    // Validate barber exists
+    const barber = await Barber.findById(barberId);
+    if (!barber) {
+      return res.status(404).json({
+        success: false,
+        message: "Barber not found"
+      });
+    }
+
+    if (!barber.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot generate schedules for inactive barber"
+      });
+    }
+
+    // Generate schedules
+    const today = new Date();
+    const endDate = new Date();
+    endDate.setDate(today.getDate() + parseInt(days));
+
+    const generatedCount = await ScheduleService.generateDefaultSchedules(
+      today,
+      endDate,
+      barberId
+    );
+
+    res.status(201).json({
+      success: true,
+      message: `Successfully generated ${generatedCount} schedules for ${barber.name}`,
+      data: {
+        barber: {
+          _id: barber._id,
+          name: barber.name,
+          barberId: barber.barberId
+        },
+        schedules: {
+          generated: generatedCount,
+          period: `${days} days`,
+          startDate: today.toDateString(),
+          endDate: endDate.toDateString()
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Generate schedules for barber error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to generate schedules for barber",
+      error: error.message
+    });
+  }
+};
+
+// Get schedule statistics untuk barber
+const getBarberScheduleStats = async (req, res) => {
+  try {
+    const { barberId } = req.params;
+
+    // Validate barber exists
+    const barber = await Barber.findById(barberId);
+    if (!barber) {
+      return res.status(404).json({
+        success: false,
+        message: "Barber not found"
+      });
+    }
+
+    const now = new Date();
+    const nextWeek = new Date();
+    nextWeek.setDate(now.getDate() + 7);
+    const nextMonth = new Date();
+    nextMonth.setDate(now.getDate() + 30);
+
+    const [
+      totalSchedules,
+      availableSchedules,
+      bookedSchedules,
+      weeklySchedules,
+      monthlySchedules
+    ] = await Promise.all([
+      Schedule.countDocuments({ 
+        barber: barberId,
+        scheduled_time: { $gte: now }
+      }),
+      Schedule.countDocuments({ 
+        barber: barberId,
+        status: 'available',
+        scheduled_time: { $gte: now }
+      }),
+      Schedule.countDocuments({ 
+        barber: barberId,
+        status: 'booked',
+        scheduled_time: { $gte: now }
+      }),
+      Schedule.countDocuments({ 
+        barber: barberId,
+        scheduled_time: { $gte: now, $lte: nextWeek }
+      }),
+      Schedule.countDocuments({ 
+        barber: barberId,
+        scheduled_time: { $gte: now, $lte: nextMonth }
+      })
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: "Barber schedule statistics retrieved successfully",
+      data: {
+        barber: {
+          _id: barber._id,
+          name: barber.name,
+          barberId: barber.barberId,
+          isActive: barber.isActive
+        },
+        statistics: {
+          total: totalSchedules,
+          available: availableSchedules,
+          booked: bookedSchedules,
+          unavailable: totalSchedules - availableSchedules - bookedSchedules,
+          weekly: weeklySchedules,
+          monthly: monthlySchedules,
+          utilizationRate: totalSchedules > 0 ? ((bookedSchedules / totalSchedules) * 100).toFixed(2) : 0
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get barber schedule stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get barber schedule statistics",
       error: error.message
     });
   }
@@ -369,6 +520,8 @@ module.exports = {
   getAllSchedules,
   getAvailableSchedules,
   generateDefaultSchedules,
+  generateSchedulesForBarber, // TAMBAHAN
+  getBarberScheduleStats, // TAMBAHAN
   updateScheduleStatus,
   bulkUpdateScheduleStatus,
   performCleanup,

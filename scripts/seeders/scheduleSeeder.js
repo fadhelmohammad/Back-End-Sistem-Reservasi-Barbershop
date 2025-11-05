@@ -7,33 +7,26 @@ const Schedule = require("../../app/models/Schedule");
 const Barber = require("../../app/models/Barber");
 const connectDB = require("../../app/config/db");
 
-// Generate time slots based on day of week
+// Generate time slots based on day of week (UPDATED untuk interval 1 jam)
 const getTimeSlots = (dayOfWeek) => {
   const timeSlots = [];
   
   if (dayOfWeek === 5) { // Friday
-    // Jumat: 13:00 - 23:00 (30 menit interval)
-    for (let hour = 13; hour <= 22; hour++) {
+    // Jumat: 13:00 - 23:00 (1 jam interval)
+    for (let hour = 13; hour <= 23; hour++) {
       timeSlots.push(`${hour.toString().padStart(2, '0')}:00`);
-      timeSlots.push(`${hour.toString().padStart(2, '0')}:30`);
     }
-    timeSlots.push("23:00");
   } else {
-    // Hari lain: 11:00 - 18:00, break, 19:30 - 23:00
+    // Hari lain: 11:00 - 18:00, break, 19:00 - 23:00 (1 jam interval)
     // Morning session: 11:00 - 18:00
-    for (let hour = 11; hour <= 17; hour++) {
+    for (let hour = 11; hour <= 18; hour++) {
       timeSlots.push(`${hour.toString().padStart(2, '0')}:00`);
-      timeSlots.push(`${hour.toString().padStart(2, '0')}:30`);
     }
-    timeSlots.push("18:00");
     
-    // Evening session: 19:30 - 23:00
-    timeSlots.push("19:30");
-    for (let hour = 20; hour <= 22; hour++) {
+    // Evening session: 19:00 - 23:00 (menghilangkan 19:30, langsung 19:00)
+    for (let hour = 19; hour <= 23; hour++) {
       timeSlots.push(`${hour.toString().padStart(2, '0')}:00`);
-      timeSlots.push(`${hour.toString().padStart(2, '0')}:30`);
     }
-    timeSlots.push("23:00");
   }
   
   return timeSlots;

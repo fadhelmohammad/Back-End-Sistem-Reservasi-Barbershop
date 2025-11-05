@@ -1,5 +1,6 @@
 const Barber = require("../models/Barber");
 const cloudinary = require('../config/cloudinary');
+const ScheduleService = require('../services/scheduleService'); // TAMBAHAN
 
 // Helper function to upload to Cloudinary with better error handling
 const uploadToCloudinary = (fileBuffer, folder = 'barbers') => {
@@ -87,7 +88,7 @@ const getBarberById = async (req, res) => {
 // Create new barber
 const createBarber = async (req, res) => {
   try {
-    let { name, phone } = req.body;
+    let { name, phone } = req.body; 
     
     // Debug logs
     console.log('Request body:', req.body);
@@ -129,19 +130,71 @@ const createBarber = async (req, res) => {
     console.log('Cloudinary upload result:', uploadResult.secure_url);
 
     // Create barber
-    const barber = new Barber({
+    const barberData = {
       name,
       phone,
       photo: uploadResult.secure_url
-    });
+    };
+    
 
+    const barber = new Barber(barberData);
     await barber.save();
 
-    res.status(201).json({
-      success: true,
-      message: "Barber created successfully",
-      data: barber
-    });
+    // AUTO GENERATE SCHEDULES UNTUK BARBER BARU
+    try {
+      console.log(`🕐 Auto-generating schedules for new barber: ${barber.name}`);
+      
+      // Generate schedules untuk 30 hari ke depan
+      const today = new Date();
+      const endDate = new Date();
+      endDate.setDate(today.getDate() + 30);
+      
+      const generatedCount = await ScheduleService.generateDefaultSchedules(
+        today, 
+        endDate, 
+        barber._id // hanya untuk barber yang baru dibuat
+      );
+      
+      console.log(`✅ Generated ${generatedCount} schedules for ${barber.name}`);
+      
+      res.status(201).json({
+        success: true,
+        message: "Barber created successfully with auto-generated schedules",
+        data: {
+          barber: barber,
+          schedules: {
+            generated: generatedCount,
+            period: "30 days",
+            pattern: {
+              mondayToThursday: "11:00-18:00, 19:00-23:00",
+              friday: "13:00-23:00",
+              saturday: "11:00-18:00, 19:00-23:00",
+              sunday: "CLOSED",
+              interval: "1 hour"
+            }
+          }
+        }
+      });
+      
+    } catch (scheduleError) {
+      console.error('Error generating schedules for new barber:', scheduleError);
+      
+      // Barber sudah dibuat, tapi schedule gagal
+      // Beri info ke user bahwa barber berhasil dibuat tapi schedule perlu di-generate manual
+      res.status(201).json({
+        success: true,
+        message: "Barber created successfully, but schedule generation failed. Please generate schedules manually.",
+        data: {
+          barber: barber,
+          schedules: {
+            generated: 0,
+            error: scheduleError.message,
+            note: "Please generate schedules manually from admin panel"
+          }
+        }
+      });
+    }
+
   } catch (error) {
     console.error('Create barber error:', error);
     
@@ -289,11 +342,73 @@ const activateBarber = async (req, res) => {
     barber.isActive = true;
     await barber.save();
     
-    res.status(200).json({
-      success: true,
-      message: "Barber activated successfully",
-      data: barber
-    });
+    // AUTO GENERATE SCHEDULES JIKA BARBER DI-ACTIVATE
+    try {
+      console.log(`🕐 Checking schedules for activated barber: ${barber.name}`);
+      
+      // Cek apakah barber sudah punya schedule yang akan datang
+      const Schedule = require('../models/Schedule');
+      const futureSchedules = await Schedule.countDocuments({
+        barber: barber._id,
+        scheduled_time: { $gte: new Date() },
+        status: { $in: ['available', 'unavailable', 'booked'] }
+      });
+      
+      if (futureSchedules === 0) {
+        // Generate schedules untuk 30 hari ke depan jika belum ada
+        const today = new Date();
+        const endDate = new Date();
+        endDate.setDate(today.getDate() + 30);
+        
+        const generatedCount = await ScheduleService.generateDefaultSchedules(
+          today, 
+          endDate, 
+          barber._id
+        );
+        
+        console.log(`✅ Generated ${generatedCount} schedules for activated barber ${barber.name}`);
+        
+        res.status(200).json({
+          success: true,
+          message: "Barber activated successfully with auto-generated schedules",
+          data: {
+            barber: barber,
+            schedules: {
+              generated: generatedCount,
+              existing: futureSchedules
+            }
+          }
+        });
+      } else {
+        res.status(200).json({
+          success: true,
+          message: "Barber activated successfully",
+          data: {
+            barber: barber,
+            schedules: {
+              generated: 0,
+              existing: futureSchedules
+            }
+          }
+        });
+      }
+      
+    } catch (scheduleError) {
+      console.error('Error checking/generating schedules for activated barber:', scheduleError);
+      
+      res.status(200).json({
+        success: true,
+        message: "Barber activated successfully, but schedule check failed",
+        data: {
+          barber: barber,
+          schedules: {
+            error: scheduleError.message,
+            note: "Please check schedules manually"
+          }
+        }
+      });
+    }
+    
   } catch (error) {
     res.status(500).json({
       success: false,
