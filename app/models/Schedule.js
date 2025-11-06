@@ -1,6 +1,10 @@
 const mongoose = require('mongoose');
 
 const scheduleSchema = new mongoose.Schema({
+  scheduleId: {
+    type: String,
+    unique: true
+  },
   barber: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Barber',
@@ -12,7 +16,7 @@ const scheduleSchema = new mongoose.Schema({
   },
   timeSlot: {
     type: String,
-    required: true // e.g., "09:00", "09:30", "10:00"
+    required: true // e.g., "11:00", "12:00", "13:00"
   },
   scheduled_time: {
     type: Date,
@@ -39,16 +43,40 @@ const scheduleSchema = new mongoose.Schema({
   completedAt: {
     type: Date,
     default: null
+  },
+  
+  // Tracking fields for slot management
+  lastModifiedBy: {
+    type: String, // userId who last modified
+    default: null
+  },
+  lastModifiedAt: {
+    type: Date,
+    default: null
+  },
+  lastModificationReason: {
+    type: String,
+    default: null
   }
 }, {
   timestamps: true
 });
 
-// Compound unique index untuk mencegah duplicate
+// Auto-generate scheduleId
+scheduleSchema.pre('save', async function(next) {
+  if (!this.scheduleId) {
+    const count = await mongoose.model('Schedule').countDocuments();
+    this.scheduleId = `SCH${(count + 1).toString().padStart(4, '0')}`;
+  }
+  next();
+});
+
+// Compound unique index
 scheduleSchema.index({ barber: 1, date: 1, timeSlot: 1 }, { unique: true });
 
-// Index untuk query performance
+// Performance indexes
 scheduleSchema.index({ status: 1, scheduled_time: 1 });
 scheduleSchema.index({ barber: 1, status: 1 });
+scheduleSchema.index({ barber: 1, date: 1 });
 
 module.exports = mongoose.model('Schedule', scheduleSchema);

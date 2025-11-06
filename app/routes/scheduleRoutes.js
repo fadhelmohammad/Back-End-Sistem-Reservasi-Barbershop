@@ -2,14 +2,19 @@ const express = require("express");
 const router = express.Router();
 const {
   getAllSchedules,
+  getBarberSchedules,
   getAvailableSchedules,
   generateDefaultSchedules,
-  generateSchedulesForBarber, // TAMBAHAN
-  getBarberScheduleStats, // TAMBAHAN
+  generateSchedulesForBarber,
+  getBarberScheduleStats,
+  toggleScheduleSlot,
+  bulkToggleScheduleSlots,
+  getScheduleAvailabilityOverview,
   updateScheduleStatus,
   bulkUpdateScheduleStatus,
   performCleanup,
-  checkExpired
+  checkExpired,
+  createSchedule
 } = require("../controllers/scheduleController");
 
 const { authMiddleware, checkRole } = require("../middleware/authMiddleware");
@@ -20,17 +25,30 @@ router.get("/available", getAvailableSchedules);
 // Admin & Cashier routes
 router.get("/", authMiddleware, checkRole(['ADMIN', 'CASHIER']), getAllSchedules);
 
+// Barber-specific schedule management
+router.get("/barber/:barberId", authMiddleware, checkRole(['ADMIN', 'CASHIER']), getBarberSchedules);
+router.get("/barber/:barberId/overview", authMiddleware, checkRole(['ADMIN', 'CASHIER']), getScheduleAvailabilityOverview);
+
+// Individual slot management
+router.put("/slot/:scheduleId/toggle", authMiddleware, checkRole(['ADMIN', 'CASHIER']), toggleScheduleSlot);
+
+// Bulk slot management for specific barber
+router.put("/barber/:barberId/bulk-toggle", authMiddleware, checkRole(['ADMIN', 'CASHIER']), bulkToggleScheduleSlots);
+
+// Admin & Cashier routes (UPDATED - Allow both)
+router.post("/", authMiddleware, checkRole(['ADMIN', 'CASHIER']), createSchedule);
+router.post("/generate", authMiddleware, checkRole(['ADMIN', 'CASHIER']), generateDefaultSchedules);
+
 // Admin only routes
-router.post("/generate", authMiddleware, checkRole('ADMIN'), generateDefaultSchedules);
 router.post("/cleanup", authMiddleware, checkRole('ADMIN'), performCleanup);
 router.get("/check-expired", authMiddleware, checkRole('ADMIN'), checkExpired);
 
-// Cashier routes untuk manage schedule availability
+// Generate schedules for specific barber (Admin & Cashier)
+router.post('/generate/:barberId', authMiddleware, checkRole(['ADMIN', 'CASHIER']), generateSchedulesForBarber);
+router.get('/stats/:barberId', authMiddleware, checkRole(['ADMIN', 'CASHIER']), getBarberScheduleStats);
+
+// Legacy routes (still supported)
 router.put("/:id/status", authMiddleware, checkRole(['ADMIN', 'CASHIER']), updateScheduleStatus);
 router.put("/bulk/status", authMiddleware, checkRole(['ADMIN', 'CASHIER']), bulkUpdateScheduleStatus);
-
-// Barber-specific routes
-router.post('/generate/:barberId', authMiddleware, checkRole(['ADMIN','CASHIER']), generateSchedulesForBarber); // Fix role case
-router.get('/stats/:barberId', authMiddleware, checkRole(['ADMIN', 'CASHIER']), getBarberScheduleStats); // Fix role case
 
 module.exports = router;
