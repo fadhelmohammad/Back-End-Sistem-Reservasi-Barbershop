@@ -343,11 +343,229 @@ const deleteCustomer = async (req, res) => {
   }
 };
 
+// Get customer profile (self)
+const getCustomerProfile = async (req, res) => {
+  try {
+    const customerId = req.user.userId || req.user.id;
+    
+    let customer;
+    
+    // Handle different ID formats
+    if (typeof customerId === 'string' && customerId.startsWith('USR-')) {
+      // Find by userId string
+      customer = await User.findOne({ 
+        userId: customerId, 
+        role: "customer" 
+      }).select("-password");
+    } else {
+      // Find by MongoDB _id
+      customer = await User.findOne({ 
+        _id: customerId, 
+        role: "customer" 
+      }).select("-password");
+    }
+
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: "Customer profile not found"
+      });
+    }
+
+    // Get customer statistics
+    const Reservation = require('../models/Reservation');
+    
+    const [
+      totalReservations,
+      completedReservations,
+      cancelledReservations,
+      pendingReservations,
+      totalSpent
+    ] = await Promise.all([
+      Reservation.countDocuments({ customer: customer._id }),
+      Reservation.countDocuments({ customer: customer._id, status: 'completed' }),
+      Reservation.countDocuments({ customer: customer._id, status: 'cancelled' }),
+      Reservation.countDocuments({ customer: customer._id, status: 'pending' }),
+      Reservation.aggregate([
+        { $match: { customer: customer._id, status: 'completed' } },
+        { $group: { _id: null, total: { $sum: '$totalPrice' } } }
+      ])
+    ]);
+
+    // Calculate loyalty level
+    const getLoyaltyLevel = (completedCount) => {
+      if (completedCount >= 20) return { level: 'VIP', color: '#FFD700', benefits: 'Priority booking, 15% discount' };
+      if (completedCount >= 10) return { level: 'Gold', color: '#FFA500', benefits: 'Priority booking, 10% discount' };
+      if (completedCount >= 5) return { level: 'Silver', color: '#C0C0C0', benefits: '5% discount' };
+      return { level: 'Bronze', color: '#CD7F32', benefits: 'Standard benefits' };
+    };
+
+    const loyaltyInfo = getLoyaltyLevel(completedReservations);
+
+    res.status(200).json({
+      success: true,
+      message: "Customer profile retrieved successfully",
+      data: {
+        _id: customer._id,
+        userId: customer.userId,
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+        role: customer.role,
+        createdAt: customer.createdAt,
+        updatedAt: customer.updatedAt,
+        profileType: "customer",
+        statistics: {
+          totalReservations,
+          completedReservations,
+          cancelledReservations,
+          pendingReservations,
+          totalSpent: totalSpent[0]?.total || 0,
+          loyaltyLevel: loyaltyInfo
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get customer profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Error retrieving customer profile",
+      error: error.message
+    });
+  }
+};
+
+// Update customer profile (self)
+const updateCustomerProfile = async (req, res) => {
+  try {
+    const customerId = req.user.userId || req.user.id;
+    const { name, email, phone, currentPassword, newPassword } = req.body;
+
+    let customer;
+    
+    // Find customer
+    if (typeof customerId === 'string' && customerId.startsWith('USR-')) {
+      customer = await User.findOne({ userId: customerId, role: "customer" });
+    } else {
+      customer = await User.findOne({ _id: customerId, role: "customer" });
+    }
+
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: "Customer not found"
+      });
+    }
+
+    // Validate email if provided
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: "Please enter a valid email address"
+        });
+      }
+
+      // Check if email already exists for other users
+      const existingUser = await User.findOne({
+        _id: { $ne: customer._id },
+        email: email.toLowerCase()
+      });
+
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: "Email already exists"
+        });
+      }
+    }
+
+    // Validate phone if provided
+    if (phone) {
+      // Check if phone already exists for other users
+      const existingUser = await User.findOne({
+        _id: { $ne: customer._id },
+        phone: phone.trim()
+      });
+
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone number already exists"
+        });
+      }
+    }
+
+    // Handle password update
+    if (newPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({
+          success: false,
+          message: "Current password is required to set new password"
+        });
+      }
+
+      // Verify current password
+      const isCurrentPasswordValid = await bcrypt.compare(currentPassword, customer.password);
+      if (!isCurrentPasswordValid) {
+        return res.status(400).json({
+          success: false,
+          message: "Current password is incorrect"
+        });
+      }
+
+      // Validate new password
+      if (newPassword.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: "New password must be at least 6 characters long"
+        });
+      }
+
+      // Hash new password
+      const salt = await bcrypt.genSalt(10);
+      customer.password = await bcrypt.hash(newPassword, salt);
+    }
+
+    // Update other fields
+    if (name) customer.name = name.trim();
+    if (email) customer.email = email.toLowerCase().trim();
+    if (phone) customer.phone = phone.trim();
+
+    await customer.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Customer profile updated successfully",
+      data: {
+        _id: customer._id,
+        userId: customer.userId,
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+        role: customer.role,
+        updatedAt: customer.updatedAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Update customer profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating customer profile",
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllCustomers,
   getCustomerById,
   createCustomer,
   loginCustomer,
   updateCustomer,
-  deleteCustomer
+  deleteCustomer,
+  getCustomerProfile,
+  updateCustomerProfile
 };

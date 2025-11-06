@@ -306,10 +306,171 @@ const deleteAdmin = async (req, res) => {
   }
 };
 
+// Get admin profile (self)
+const getAdminProfile = async (req, res) => {
+  try {
+    const adminId = req.user.userId || req.user.id;
+    
+    let admin;
+    
+    // Handle different ID formats
+    if (typeof adminId === 'string' && adminId.startsWith('USR-')) {
+      // Find by userId string
+      admin = await User.findOne({ 
+        userId: adminId, 
+        role: "admin" 
+      }).select("-password");
+    } else {
+      // Find by MongoDB _id
+      admin = await User.findOne({ 
+        _id: adminId, 
+        role: "admin" 
+      }).select("-password");
+    }
+
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin profile not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Admin profile retrieved successfully",
+      data: {
+        _id: admin._id,
+        userId: admin.userId,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role,
+        createdAt: admin.createdAt,
+        updatedAt: admin.updatedAt,
+        profileType: "admin"
+      }
+    });
+  } catch (error) {
+    console.error('Get admin profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Error retrieving admin profile",
+      error: error.message
+    });
+  }
+};
+
+// Update admin profile (self)
+const updateAdminProfile = async (req, res) => {
+  try {
+    const adminId = req.user.userId || req.user.id;
+    const { name, email, currentPassword, newPassword } = req.body;
+
+    let admin;
+    
+    // Find admin
+    if (typeof adminId === 'string' && adminId.startsWith('USR-')) {
+      admin = await User.findOne({ userId: adminId, role: "admin" });
+    } else {
+      admin = await User.findOne({ _id: adminId, role: "admin" });
+    }
+
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found"
+      });
+    }
+
+    // Validate email if provided
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: "Please enter a valid email address"
+        });
+      }
+
+      // Check if email already exists for other users
+      const existingUser = await User.findOne({
+        _id: { $ne: admin._id },
+        email: email.toLowerCase()
+      });
+
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: "Email already exists"
+        });
+      }
+    }
+
+    // Handle password update
+    if (newPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({
+          success: false,
+          message: "Current password is required to set new password"
+        });
+      }
+
+      // Verify current password
+      const isCurrentPasswordValid = await bcrypt.compare(currentPassword, admin.password);
+      if (!isCurrentPasswordValid) {
+        return res.status(400).json({
+          success: false,
+          message: "Current password is incorrect"
+        });
+      }
+
+      // Validate new password
+      if (newPassword.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: "New password must be at least 6 characters long"
+        });
+      }
+
+      // Hash new password
+      const salt = await bcrypt.genSalt(10);
+      admin.password = await bcrypt.hash(newPassword, salt);
+    }
+
+    // Update other fields
+    if (name) admin.name = name.trim();
+    if (email) admin.email = email.toLowerCase().trim();
+
+    await admin.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Admin profile updated successfully",
+      data: {
+        _id: admin._id,
+        userId: admin.userId,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role,
+        updatedAt: admin.updatedAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Update admin profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating admin profile",
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllAdmins,
   getAdminById,
   createAdmin,
   updateAdmin,
-  deleteAdmin
+  deleteAdmin,
+  getAdminProfile,
+  updateAdminProfile
 };

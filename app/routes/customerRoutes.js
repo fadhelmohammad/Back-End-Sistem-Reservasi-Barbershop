@@ -1,13 +1,14 @@
 const express = require("express");
 const router = express.Router();
-
 const {
   getAllCustomers,
   getCustomerById,
   createCustomer,
   loginCustomer,
   updateCustomer,
-  deleteCustomer
+  deleteCustomer,
+  getCustomerProfile,    // TAMBAHAN
+  updateCustomerProfile  // TAMBAHAN
 } = require("../controllers/customerController");
 
 const { authMiddleware, checkRole } = require("../middleware/authMiddleware");
@@ -16,9 +17,15 @@ const { authMiddleware, checkRole } = require("../middleware/authMiddleware");
 router.post("/register", createCustomer);
 router.post("/login", loginCustomer);
 
-// Admin-only routes for customer management
-router.get("/", authMiddleware, checkRole('ADMIN'), getAllCustomers);
-router.get("/:id", authMiddleware, checkRole('ADMIN'), getCustomerById);
+// Profile routes (self management)
+router.get('/profile', authMiddleware, checkRole('CUSTOMER'), getCustomerProfile);
+router.put('/profile', authMiddleware, checkRole('CUSTOMER'), updateCustomerProfile);
+
+// Admin & Cashier routes
+router.get("/", authMiddleware, checkRole(['ADMIN', 'CASHIER']), getAllCustomers);
+router.get("/:id", authMiddleware, checkRole(['ADMIN', 'CASHIER']), getCustomerById);
+
+// Admin only routes
 router.put("/:id", authMiddleware, checkRole('ADMIN'), updateCustomer);
 router.delete("/:id", authMiddleware, checkRole('ADMIN'), deleteCustomer);
 

@@ -13,6 +13,7 @@ const adminRoutes = require("./app/routes/adminRoutes");
 const customerRoutes = require("./app/routes/customerRoutes");
 const paymentRoutes = require('./app/routes/paymentRoutes');
 const historyRoutes = require('./app/routes/historyRoutes');
+const profileRoutes = require('./app/routes/profileRoutes');
 
 // Import cron jobs
 const ScheduleJobs = require("./app/jobs/scheduleJobs");
@@ -45,6 +46,7 @@ app.use("/cashiers", cashierRoutes);
 app.use("/customers", customerRoutes);
 app.use('/payments', paymentRoutes);
 app.use('/history', historyRoutes);
+app.use('/profile', profileRoutes); // Universal profile endpoint
 
 // Initialize cron jobs
 ScheduleJobs.init();

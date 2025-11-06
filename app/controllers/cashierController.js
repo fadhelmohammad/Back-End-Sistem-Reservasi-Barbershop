@@ -308,10 +308,200 @@ const deleteCashier = async (req, res) => {
   }
 };
 
+// Get cashier profile (self)
+const getCashierProfile = async (req, res) => {
+  try {
+    const cashierId = req.user.userId || req.user.id;
+    
+    let cashier;
+    
+    // Handle different ID formats
+    if (typeof cashierId === 'string' && cashierId.startsWith('USR-')) {
+      // Find by userId string
+      cashier = await User.findOne({ 
+        userId: cashierId, 
+        role: "cashier" 
+      }).select("-password");
+    } else {
+      // Find by MongoDB _id
+      cashier = await User.findOne({ 
+        _id: cashierId, 
+        role: "cashier" 
+      }).select("-password");
+    }
+
+    if (!cashier) {
+      return res.status(404).json({
+        success: false,
+        message: "Cashier profile not found"
+      });
+    }
+
+    // Get cashier statistics
+    const Reservation = require('../models/Reservation');
+    const today = new Date();
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    
+    const [
+      totalConfirmed,
+      monthlyConfirmed,
+      todayConfirmed
+    ] = await Promise.all([
+      Reservation.countDocuments({ confirmedBy: cashier._id }),
+      Reservation.countDocuments({ 
+        confirmedBy: cashier._id, 
+        confirmedAt: { $gte: startOfMonth } 
+      }),
+      Reservation.countDocuments({ 
+        confirmedBy: cashier._id, 
+        confirmedAt: { 
+          $gte: new Date(today.toDateString()),
+          $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000)
+        } 
+      })
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: "Cashier profile retrieved successfully",
+      data: {
+        _id: cashier._id,
+        userId: cashier.userId,
+        name: cashier.name,
+        email: cashier.email,
+        role: cashier.role,
+        createdAt: cashier.createdAt,
+        updatedAt: cashier.updatedAt,
+        profileType: "cashier",
+        statistics: {
+          totalConfirmed,
+          monthlyConfirmed,
+          todayConfirmed
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get cashier profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Error retrieving cashier profile",
+      error: error.message
+    });
+  }
+};
+
+// Update cashier profile (self)
+const updateCashierProfile = async (req, res) => {
+  try {
+    const cashierId = req.user.userId || req.user.id;
+    const { name, email, currentPassword, newPassword } = req.body;
+
+    let cashier;
+    
+    // Find cashier
+    if (typeof cashierId === 'string' && cashierId.startsWith('USR-')) {
+      cashier = await User.findOne({ userId: cashierId, role: "cashier" });
+    } else {
+      cashier = await User.findOne({ _id: cashierId, role: "cashier" });
+    }
+
+    if (!cashier) {
+      return res.status(404).json({
+        success: false,
+        message: "Cashier not found"
+      });
+    }
+
+    // Validate email if provided
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: "Please enter a valid email address"
+        });
+      }
+
+      // Check if email already exists for other users
+      const existingUser = await User.findOne({
+        _id: { $ne: cashier._id },
+        email: email.toLowerCase()
+      });
+
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: "Email already exists"
+        });
+      }
+    }
+
+    // Handle password update
+    if (newPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({
+          success: false,
+          message: "Current password is required to set new password"
+        });
+      }
+
+      // Verify current password
+      const isCurrentPasswordValid = await bcrypt.compare(currentPassword, cashier.password);
+      if (!isCurrentPasswordValid) {
+        return res.status(400).json({
+          success: false,
+          message: "Current password is incorrect"
+        });
+      }
+
+      // Validate new password
+      if (newPassword.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: "New password must be at least 6 characters long"
+        });
+      }
+
+      // Hash new password
+      const salt = await bcrypt.genSalt(10);
+      cashier.password = await bcrypt.hash(newPassword, salt);
+    }
+
+    // Update other fields
+    if (name) cashier.name = name.trim();
+    if (email) cashier.email = email.toLowerCase().trim();
+
+    await cashier.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Cashier profile updated successfully",
+      data: {
+        _id: cashier._id,
+        userId: cashier.userId,
+        name: cashier.name,
+        email: cashier.email,
+        role: cashier.role,
+        updatedAt: cashier.updatedAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Update cashier profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating cashier profile",
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllCashiers,
   getCashierById,
   createCashier,
   updateCashier,
-  deleteCashier
+  deleteCashier,
+  getCashierProfile, // TAMBAHAN
+  updateCashierProfile // TAMBAHAN
 };
