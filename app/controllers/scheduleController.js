@@ -599,18 +599,12 @@ const toggleScheduleSlot = async (req, res) => {
   }
 };
 
-// Bulk toggle schedule slots for specific barber and time ranges
+// Simplified bulk toggle by schedule IDs (without reason)
 const bulkToggleScheduleSlots = async (req, res) => {
   try {
-    const { barberId } = req.params;
     const { 
       action, // 'enable' or 'disable'
-      timeSlots, // Array of time slots like ['09:00', '10:00']
-      dates, // Array of dates or date range
-      startDate,
-      endDate,
-      dayOfWeek, // Optional: specific days (0-6, Sunday-Saturday)
-      reason
+      scheduleIds // Array of schedule IDs
     } = req.body;
 
     if (!['enable', 'disable'].includes(action)) {
@@ -620,43 +614,44 @@ const bulkToggleScheduleSlots = async (req, res) => {
       });
     }
 
-    // Validate barber exists
-    const barber = await Barber.findById(barberId);
-    if (!barber) {
-      return res.status(404).json({
+    if (!scheduleIds || !Array.isArray(scheduleIds) || scheduleIds.length === 0) {
+      return res.status(400).json({
         success: false,
-        message: "Barber not found"
+        message: "scheduleIds array is required and cannot be empty"
       });
     }
 
-    // Build query
-    let query = { 
-      barber: barberId,
-      status: { $nin: ['booked', 'completed', 'expired'] } // Only modifiable schedules
-    };
+    // Find schedules and validate they exist and can be modified
+    const schedules = await Schedule.find({
+      _id: { $in: scheduleIds }
+    }).populate('barber', 'name barberId');
 
-    // Date filters
-    if (dates && Array.isArray(dates)) {
-      query.date = { $in: dates.map(d => new Date(d)) };
-    } else if (startDate && endDate) {
-      query.date = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
-      };
+    if (schedules.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No schedules found with provided IDs"
+      });
     }
 
-    // Time slot filter
-    if (timeSlots && Array.isArray(timeSlots)) {
-      query.timeSlot = { $in: timeSlots };
-    }
+    // Check which schedules cannot be modified
+    const nonModifiableSchedules = schedules.filter(schedule => 
+      ['booked', 'completed', 'expired'].includes(schedule.status)
+    );
 
-    // Day of week filter
-    if (dayOfWeek !== undefined) {
-      if (Array.isArray(dayOfWeek)) {
-        query.dayOfWeek = { $in: dayOfWeek };
-      } else {
-        query.dayOfWeek = dayOfWeek;
-      }
+    if (nonModifiableSchedules.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Some schedules cannot be modified",
+        data: {
+          nonModifiableSchedules: nonModifiableSchedules.map(s => ({
+            _id: s._id,
+            timeSlot: s.timeSlot,
+            date: s.date,
+            status: s.status,
+            barber: s.barber.name
+          }))
+        }
+      });
     }
 
     const newStatus = action === 'enable' ? 'available' : 'unavailable';
@@ -668,29 +663,53 @@ const bulkToggleScheduleSlots = async (req, res) => {
       lastModifiedAt: new Date()
     };
 
-    if (reason) {
-      updateData.lastModificationReason = reason;
-    }
+    const result = await Schedule.updateMany(
+      { 
+        _id: { $in: scheduleIds },
+        status: { $nin: ['booked', 'completed', 'expired'] }
+      }, 
+      updateData
+    );
 
-    const result = await Schedule.updateMany(query, updateData);
+    // Get updated schedules for response
+    const updatedSchedules = await Schedule.find({
+      _id: { $in: scheduleIds }
+    }).populate('barber', 'name barberId');
+
+    // Group by barber for summary
+    const barberSummary = {};
+    updatedSchedules.forEach(schedule => {
+      const barberId = schedule.barber._id.toString();
+      if (!barberSummary[barberId]) {
+        barberSummary[barberId] = {
+          barber: schedule.barber,
+          schedules: []
+        };
+      }
+      barberSummary[barberId].schedules.push({
+        _id: schedule._id,
+        date: schedule.date,
+        timeSlot: schedule.timeSlot,
+        status: schedule.status
+      });
+    });
 
     res.json({
       success: true,
       message: `Successfully ${action}d ${result.modifiedCount} schedule slots`,
       data: {
-        barber: {
-          _id: barber._id,
-          name: barber.name,
-          barberId: barber.barberId
-        },
         modified: result.modifiedCount,
+        total: scheduleIds.length,
         action: action,
-        filters: {
-          timeSlots,
-          dates: dates || { startDate, endDate },
-          dayOfWeek
-        },
-        reason: reason || null
+        barberSummary,
+        updatedSchedules: updatedSchedules.map(s => ({
+          _id: s._id,
+          barber: s.barber.name,
+          date: s.date,
+          timeSlot: s.timeSlot,
+          status: s.status,
+          lastModifiedAt: s.lastModifiedAt
+        }))
       }
     });
 

@@ -32,8 +32,8 @@ router.get("/barber/:barberId/overview", authMiddleware, checkRole(['ADMIN', 'CA
 // Individual slot management
 router.put("/slot/:scheduleId/toggle", authMiddleware, checkRole(['ADMIN', 'CASHIER']), toggleScheduleSlot);
 
-// Bulk slot management for specific barber
-router.put("/barber/:barberId/bulk-toggle", authMiddleware, checkRole(['ADMIN', 'CASHIER']), bulkToggleScheduleSlots);
+// Bulk slot management by schedule IDs (UPDATED - Remove barberId, no reason)
+router.put("/bulk-toggle", authMiddleware, checkRole(['ADMIN', 'CASHIER']), bulkToggleScheduleSlots);
 
 // Admin & Cashier routes (UPDATED - Allow both)
 router.post("/", authMiddleware, checkRole(['ADMIN', 'CASHIER']), createSchedule);
