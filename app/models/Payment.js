@@ -15,10 +15,6 @@ const paymentOptionSchema = new mongoose.Schema({
     type: String,
     required: true // e.g., "BCA", "Mandiri", "GoPay", "OVO"
   },
-  displayName: {
-    type: String,
-    required: true // e.g., "Bank Central Asia", "GoPay (Gojek)"
-  },
   accountNumber: {
     type: String,
     required: function() {
@@ -47,10 +43,6 @@ const paymentOptionSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
-  description: {
-    type: String,
-    default: ""
-  },
   sortOrder: {
     type: Number,
     default: 0
@@ -68,7 +60,7 @@ paymentOptionSchema.pre('save', async function(next) {
   next();
 });
 
-// Payment Schema (existing)
+// Payment Schema (existing - unchanged)
 const paymentSchema = new mongoose.Schema({
   paymentId: {
     type: String,

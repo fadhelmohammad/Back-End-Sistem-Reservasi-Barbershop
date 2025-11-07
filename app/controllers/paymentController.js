@@ -84,9 +84,8 @@ const getPaymentMethods = async (req, res) => {
       const optionData = {
         id: option._id,
         optionId: option.optionId,
-        name: option.name,
-        displayName: option.displayName,
-        description: option.description
+        name: option.name
+        // Removed displayName and description
       };
 
       if (option.type === 'bank_transfer') {
@@ -154,21 +153,19 @@ const createPaymentOption = async (req, res) => {
     const {
       type,
       name,
-      displayName,
       accountNumber,
       accountName,
       phoneNumber,
       walletName,
-      description,
       sortOrder,
       isActive = true
     } = req.body;
 
-    // Validate required fields
-    if (!type || !name || !displayName) {
+    // Validate required fields - REMOVED displayName
+    if (!type || !name) {
       return res.status(400).json({
         success: false,
-        message: "Type, name, and display name are required"
+        message: "Type and name are required"
       });
     }
 
@@ -203,12 +200,10 @@ const createPaymentOption = async (req, res) => {
       });
     }
 
-    // Create payment option
+    // Create payment option - REMOVED description and displayName
     const paymentOptionData = {
       type,
       name: name.trim(),
-      displayName: displayName.trim(),
-      description: description?.trim() || "",
       sortOrder: sortOrder || 0,
       isActive
     };
@@ -255,12 +250,10 @@ const updatePaymentOption = async (req, res) => {
     const {
       type,
       name,
-      displayName,
       accountNumber,
       accountName,
       phoneNumber,
       walletName,
-      description,
       sortOrder,
       isActive
     } = req.body;
@@ -293,11 +286,9 @@ const updatePaymentOption = async (req, res) => {
       }
     }
 
-    // Update fields
+    // Update fields - REMOVED description and displayName
     if (type) paymentOption.type = type;
     if (name) paymentOption.name = name.trim();
-    if (displayName) paymentOption.displayName = displayName.trim();
-    if (description !== undefined) paymentOption.description = description.trim();
     if (sortOrder !== undefined) paymentOption.sortOrder = sortOrder;
     if (isActive !== undefined) paymentOption.isActive = isActive;
 
