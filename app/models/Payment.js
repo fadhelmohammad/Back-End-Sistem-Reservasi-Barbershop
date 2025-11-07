@@ -1,5 +1,74 @@
 const mongoose = require('mongoose');
 
+// Payment Option Schema (embedded in Payment.js)
+const paymentOptionSchema = new mongoose.Schema({
+  optionId: {
+    type: String,
+    unique: true
+  },
+  type: {
+    type: String,
+    enum: ['bank_transfer', 'e_wallet'],
+    required: true
+  },
+  name: {
+    type: String,
+    required: true // e.g., "BCA", "Mandiri", "GoPay", "OVO"
+  },
+  displayName: {
+    type: String,
+    required: true // e.g., "Bank Central Asia", "GoPay (Gojek)"
+  },
+  accountNumber: {
+    type: String,
+    required: function() {
+      return this.type === 'bank_transfer';
+    }
+  },
+  accountName: {
+    type: String,
+    required: function() {
+      return this.type === 'bank_transfer';
+    }
+  },
+  phoneNumber: {
+    type: String,
+    required: function() {
+      return this.type === 'e_wallet';
+    }
+  },
+  walletName: {
+    type: String,
+    required: function() {
+      return this.type === 'e_wallet';
+    }
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  description: {
+    type: String,
+    default: ""
+  },
+  sortOrder: {
+    type: Number,
+    default: 0
+  }
+}, {
+  timestamps: true
+});
+
+// Auto-generate optionId for PaymentOption
+paymentOptionSchema.pre('save', async function(next) {
+  if (!this.optionId) {
+    const count = await mongoose.model('PaymentOption').countDocuments();
+    this.optionId = `PMT${String(count + 1).padStart(3, '0')}`;
+  }
+  next();
+});
+
+// Payment Schema (existing)
 const paymentSchema = new mongoose.Schema({
   paymentId: {
     type: String,
@@ -70,4 +139,12 @@ paymentSchema.pre('save', async function(next) {
   next();
 });
 
-module.exports = mongoose.model('Payment', paymentSchema);
+// Indexes for PaymentOption
+paymentOptionSchema.index({ type: 1, isActive: 1 });
+paymentOptionSchema.index({ sortOrder: 1 });
+
+// Export both models
+const Payment = mongoose.model('Payment', paymentSchema);
+const PaymentOption = mongoose.model('PaymentOption', paymentOptionSchema);
+
+module.exports = { Payment, PaymentOption };

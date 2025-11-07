@@ -1,73 +1,115 @@
-const Payment = require('../models/Payment');
+const { Payment, PaymentOption } = require('../models/Payment');
 const Reservation = require('../models/Reservation');
 const cloudinary = require('../config/cloudinary');
 const User = require('../models/User');
 
-// Get payment methods (bank accounts & e-wallets)
+// ========================
+// PAYMENT OPTION FUNCTIONS
+// ========================
+
+// Get all payment options
+const getAllPaymentOptions = async (req, res) => {
+  try {
+    const { type, isActive } = req.query;
+    
+    let query = {};
+    
+    if (type) {
+      query.type = type;
+    }
+    
+    if (isActive !== undefined) {
+      query.isActive = isActive === 'true';
+    }
+
+    const paymentOptions = await PaymentOption.find(query)
+      .sort({ type: 1, sortOrder: 1, name: 1 });
+
+    // Group by type for better organization
+    const groupedOptions = {
+      bank_transfer: [],
+      e_wallet: []
+    };
+
+    paymentOptions.forEach(option => {
+      groupedOptions[option.type].push(option);
+    });
+
+    res.json({
+      success: true,
+      message: "Payment options retrieved successfully",
+      data: {
+        all: paymentOptions,
+        grouped: groupedOptions,
+        totals: {
+          banks: groupedOptions.bank_transfer.length,
+          eWallets: groupedOptions.e_wallet.length,
+          total: paymentOptions.length
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get payment options error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch payment options",
+      error: error.message
+    });
+  }
+};
+
+// Get active payment options (Public) - REPLACES getPaymentMethods
 const getPaymentMethods = async (req, res) => {
   try {
-    const paymentMethods = {
-      bankAccounts: [
-        {
-          id: 1,
-          bankName: "Bank BCA",
-          accountNumber: "1234567890",
-          accountName: "BroCode Barbershop",
-          logo: "https://res.cloudinary.com/demo/image/upload/bca_logo.png"
-        },
-        {
-          id: 2,
-          bankName: "Bank Mandiri", 
-          accountNumber: "0987654321",
-          accountName: "BroCode Barbershop",
-          logo: "https://res.cloudinary.com/demo/image/upload/mandiri_logo.png"
-        },
-        {
-          id: 3,
-          bankName: "Bank BRI",
-          accountNumber: "5555666677",
-          accountName: "BroCode Barbershop",
-          logo: "https://res.cloudinary.com/demo/image/upload/bri_logo.png"
-        }
-      ],
-      eWallets: [
-        {
-          id: 1,
-          walletType: "GoPay",
-          walletNumber: "081234567890",
-          walletName: "BroCode Barbershop",
-          logo: "https://res.cloudinary.com/demo/image/upload/gopay_logo.png"
-        },
-        {
-          id: 2,
-          walletType: "OVO",
-          walletNumber: "081234567890", 
-          walletName: "BroCode Barbershop",
-          logo: "https://res.cloudinary.com/demo/image/upload/ovo_logo.png"
-        },
-        {
-          id: 3,
-          walletType: "DANA",
-          walletNumber: "081234567890",
-          walletName: "BroCode Barbershop",
-          logo: "https://res.cloudinary.com/demo/image/upload/dana_logo.png"
-        },
-        {
-          id: 4,
-          walletType: "ShopeePay",
-          walletNumber: "081234567890",
-          walletName: "BroCode Barbershop",
-          logo: "https://res.cloudinary.com/demo/image/upload/shopeepay_logo.png"
-        }
-      ]
+    const { type } = req.query;
+    
+    let query = { isActive: true };
+    
+    if (type) {
+      query.type = type;
+    }
+
+    const paymentOptions = await PaymentOption.find(query)
+      .select('-createdAt -updatedAt')
+      .sort({ type: 1, sortOrder: 1, name: 1 });
+
+    // Group by type for backwards compatibility
+    const groupedOptions = {
+      bankAccounts: [],
+      eWallets: []
     };
+
+    paymentOptions.forEach(option => {
+      const optionData = {
+        id: option._id,
+        optionId: option.optionId,
+        name: option.name,
+        displayName: option.displayName,
+        description: option.description
+      };
+
+      if (option.type === 'bank_transfer') {
+        optionData.bankName = option.name;
+        optionData.accountNumber = option.accountNumber;
+        optionData.accountName = option.accountName;
+        groupedOptions.bankAccounts.push(optionData);
+      } else if (option.type === 'e_wallet') {
+        optionData.walletType = option.name;
+        optionData.walletNumber = option.phoneNumber;
+        optionData.walletName = option.walletName;
+        groupedOptions.eWallets.push(optionData);
+      }
+    });
 
     res.status(200).json({
       success: true,
       message: "Payment methods retrieved successfully",
-      data: paymentMethods
+      data: groupedOptions
     });
+
   } catch (error) {
+    console.error('Get payment methods error:', error);
     res.status(500).json({
       success: false,
       message: "Error retrieving payment methods",
@@ -75,6 +117,316 @@ const getPaymentMethods = async (req, res) => {
     });
   }
 };
+
+// Get payment option by ID
+const getPaymentOptionById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const paymentOption = await PaymentOption.findById(id);
+
+    if (!paymentOption) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment option not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Payment option retrieved successfully",
+      data: paymentOption
+    });
+
+  } catch (error) {
+    console.error('Get payment option by ID error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch payment option",
+      error: error.message
+    });
+  }
+};
+
+// Create payment option
+const createPaymentOption = async (req, res) => {
+  try {
+    const {
+      type,
+      name,
+      displayName,
+      accountNumber,
+      accountName,
+      phoneNumber,
+      walletName,
+      description,
+      sortOrder,
+      isActive = true
+    } = req.body;
+
+    // Validate required fields
+    if (!type || !name || !displayName) {
+      return res.status(400).json({
+        success: false,
+        message: "Type, name, and display name are required"
+      });
+    }
+
+    // Validate type-specific fields
+    if (type === 'bank_transfer') {
+      if (!accountNumber || !accountName) {
+        return res.status(400).json({
+          success: false,
+          message: "Account number and account name are required for bank transfer"
+        });
+      }
+    } else if (type === 'e_wallet') {
+      if (!phoneNumber || !walletName) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone number and wallet name are required for e-wallet"
+        });
+      }
+    }
+
+    // Check for duplicate name within same type
+    const existingOption = await PaymentOption.findOne({
+      type: type,
+      name: name.toLowerCase(),
+      isActive: true
+    });
+
+    if (existingOption) {
+      return res.status(400).json({
+        success: false,
+        message: `${type === 'bank_transfer' ? 'Bank' : 'E-wallet'} with this name already exists`
+      });
+    }
+
+    // Create payment option
+    const paymentOptionData = {
+      type,
+      name: name.trim(),
+      displayName: displayName.trim(),
+      description: description?.trim() || "",
+      sortOrder: sortOrder || 0,
+      isActive
+    };
+
+    if (type === 'bank_transfer') {
+      paymentOptionData.accountNumber = accountNumber.trim();
+      paymentOptionData.accountName = accountName.trim();
+    } else if (type === 'e_wallet') {
+      paymentOptionData.phoneNumber = phoneNumber.trim();
+      paymentOptionData.walletName = walletName.trim();
+    }
+
+    const paymentOption = new PaymentOption(paymentOptionData);
+    const savedPaymentOption = await paymentOption.save();
+
+    res.status(201).json({
+      success: true,
+      message: "Payment option created successfully",
+      data: savedPaymentOption
+    });
+
+  } catch (error) {
+    console.error('Create payment option error:', error);
+    
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "Payment option with this name already exists"
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to create payment option",
+      error: error.message
+    });
+  }
+};
+
+// Update payment option
+const updatePaymentOption = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      type,
+      name,
+      displayName,
+      accountNumber,
+      accountName,
+      phoneNumber,
+      walletName,
+      description,
+      sortOrder,
+      isActive
+    } = req.body;
+
+    const paymentOption = await PaymentOption.findById(id);
+
+    if (!paymentOption) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment option not found"
+      });
+    }
+
+    // Validate type-specific fields if type is being changed
+    const newType = type || paymentOption.type;
+    
+    if (newType === 'bank_transfer') {
+      if (!accountNumber && !paymentOption.accountNumber || !accountName && !paymentOption.accountName) {
+        return res.status(400).json({
+          success: false,
+          message: "Account number and account name are required for bank transfer"
+        });
+      }
+    } else if (newType === 'e_wallet') {
+      if (!phoneNumber && !paymentOption.phoneNumber || !walletName && !paymentOption.walletName) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone number and wallet name are required for e-wallet"
+        });
+      }
+    }
+
+    // Update fields
+    if (type) paymentOption.type = type;
+    if (name) paymentOption.name = name.trim();
+    if (displayName) paymentOption.displayName = displayName.trim();
+    if (description !== undefined) paymentOption.description = description.trim();
+    if (sortOrder !== undefined) paymentOption.sortOrder = sortOrder;
+    if (isActive !== undefined) paymentOption.isActive = isActive;
+
+    // Update type-specific fields
+    if (newType === 'bank_transfer') {
+      if (accountNumber) paymentOption.accountNumber = accountNumber.trim();
+      if (accountName) paymentOption.accountName = accountName.trim();
+      // Clear e-wallet fields
+      paymentOption.phoneNumber = undefined;
+      paymentOption.walletName = undefined;
+    } else if (newType === 'e_wallet') {
+      if (phoneNumber) paymentOption.phoneNumber = phoneNumber.trim();
+      if (walletName) paymentOption.walletName = walletName.trim();
+      // Clear bank fields
+      paymentOption.accountNumber = undefined;
+      paymentOption.accountName = undefined;
+    }
+
+    const updatedPaymentOption = await paymentOption.save();
+
+    res.json({
+      success: true,
+      message: "Payment option updated successfully",
+      data: updatedPaymentOption
+    });
+
+  } catch (error) {
+    console.error('Update payment option error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update payment option",
+      error: error.message
+    });
+  }
+};
+
+// Delete payment option
+const deletePaymentOption = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const paymentOption = await PaymentOption.findById(id);
+
+    if (!paymentOption) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment option not found"
+      });
+    }
+
+    // Check if payment option is being used in any payments
+    const isUsed = await Payment.findOne({
+      $or: [
+        { 'bankAccount.bankName': paymentOption.name },
+        { 'eWallet.walletType': paymentOption.name }
+      ]
+    });
+
+    if (isUsed) {
+      // Soft delete - just deactivate
+      paymentOption.isActive = false;
+      await paymentOption.save();
+
+      return res.json({
+        success: true,
+        message: "Payment option deactivated successfully (cannot delete - still referenced in payments)",
+        data: paymentOption
+      });
+    }
+
+    // Hard delete if not referenced
+    await PaymentOption.findByIdAndDelete(id);
+
+    res.json({
+      success: true,
+      message: "Payment option deleted successfully",
+      data: {
+        _id: id,
+        name: paymentOption.name,
+        type: paymentOption.type
+      }
+    });
+
+  } catch (error) {
+    console.error('Delete payment option error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete payment option",
+      error: error.message
+    });
+  }
+};
+
+// Toggle payment option status
+const togglePaymentOptionStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const paymentOption = await PaymentOption.findById(id);
+
+    if (!paymentOption) {
+      return res.status(404).json({
+        success: false,
+        message: "Payment option not found"
+      });
+    }
+
+    paymentOption.isActive = !paymentOption.isActive;
+    const updatedPaymentOption = await paymentOption.save();
+
+    res.json({
+      success: true,
+      message: `Payment option ${paymentOption.isActive ? 'activated' : 'deactivated'} successfully`,
+      data: updatedPaymentOption
+    });
+
+  } catch (error) {
+    console.error('Toggle payment option status error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to toggle payment option status",
+      error: error.message
+    });
+  }
+};
+
+// ========================
+// EXISTING PAYMENT FUNCTIONS (unchanged)
+// ========================
 
 // Upload payment proof
 const uploadPaymentProof = async (req, res) => {
@@ -688,7 +1040,16 @@ const getPendingReservationsWithPayment = async (req, res) => {
 };
 
 module.exports = {
-  getPaymentMethods,
+  // Payment Option functions
+  getAllPaymentOptions,
+  getPaymentOptionById,
+  createPaymentOption,
+  updatePaymentOption,
+  deletePaymentOption,
+  togglePaymentOptionStatus,
+  
+  // Payment functions (existing)
+  getPaymentMethods, // Updated to use PaymentOption
   uploadPaymentProof,
   getPaymentDetails,
   getPendingPayments,

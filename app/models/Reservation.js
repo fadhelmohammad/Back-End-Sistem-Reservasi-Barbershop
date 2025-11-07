@@ -1,14 +1,14 @@
-const mongoose = require("mongoose");
+const mongoose = require('mongoose');
 
 const reservationSchema = new mongoose.Schema({
   reservationId: {
     type: String,
-    unique: true,
-    required: true
+    unique: true
+    // HAPUS required: true, karena akan di-generate otomatis
   },
   customer: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
+    ref: 'User',
     required: true
   },
   customerName: {
@@ -19,80 +19,71 @@ const reservationSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  customerEmail: String,
+  customerEmail: {
+    type: String,
+    required: true
+  },
   package: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "Package",
+    ref: 'Package',
     required: true
   },
   barber: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "Barber",
+    ref: 'Barber',
     required: true
   },
   schedule: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "Schedule",
+    ref: 'Schedule',
     required: true
   },
   totalPrice: {
     type: Number,
     required: true
   },
+  notes: {
+    type: String,
+    default: ""
+  },
   status: {
     type: String,
-    enum: ["pending", "confirmed", "cancelled", "completed"],
-    default: "pending"
+    enum: ['pending', 'confirmed', 'in_progress', 'completed', 'cancelled'],
+    default: 'pending'
   },
-  notes: String,
-  paymentMethod: {
-    type: String,
-    enum: ["cash", "bank_transfer", "e_wallet"],
-    default: "cash"
-  },
-  
-  // TAMBAHAN: Payment reference
-  paymentId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Payment"
-  },
-  
-  // TAMBAHAN: Tracking fields
   confirmedBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "User"
+    ref: 'User'
   },
   confirmedAt: {
+    type: Date
+  },
+  completedAt: {
     type: Date
   },
   cancelledAt: {
     type: Date
   },
-  cancelReason: String,
-  
-  isWalkIn: {
-    type: Boolean,
-    default: false
-  },
-  isOwnProfile: {
-    type: Boolean,
-    default: true
+  cancellationReason: {
+    type: String
   }
 }, {
   timestamps: true
 });
 
-// Generate reservationId before saving
+// Auto-generate reservationId before saving
 reservationSchema.pre('save', async function(next) {
   if (!this.reservationId) {
-    try {
-      const count = await this.constructor.countDocuments();
-      this.reservationId = `RES${String(count + 1).padStart(4, '0')}`;
-    } catch (error) {
-      return next(error);
-    }
+    const count = await mongoose.model('Reservation').countDocuments();
+    this.reservationId = `RES${String(count + 1).padStart(4, '0')}`;
   }
   next();
 });
 
-module.exports = mongoose.model("Reservation", reservationSchema);
+// Indexes for better query performance
+reservationSchema.index({ customer: 1, status: 1 });
+reservationSchema.index({ barber: 1, status: 1 });
+reservationSchema.index({ schedule: 1 });
+reservationSchema.index({ createdAt: -1 });
+
+module.exports = mongoose.model('Reservation', reservationSchema);

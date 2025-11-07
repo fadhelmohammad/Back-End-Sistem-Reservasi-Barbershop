@@ -93,136 +93,153 @@ const getAvailableSchedules = async (req, res) => {
 // Step 4: Create reservation
 const createReservation = async (req, res) => {
   try {
-    const { packageId, barberId, scheduleId, notes, customerData } = req.body;
-    const userIdentifier = req.user.userId || req.user.id;
+    const {
+      packageId,
+      barberId,
+      scheduleId,
+      notes = "",
+      name,
+      phone,
+      email,
+      userId,
+      isOwnProfile = true
+    } = req.body;
 
     // Validate required fields
-    if (!packageId || !barberId || !scheduleId) {
+    if (!packageId || !barberId || !scheduleId || !name || !phone || !email) {
       return res.status(400).json({
         success: false,
-        message: "Package, barber, and schedule are required"
+        message: "Package, barber, schedule, name, phone, and email are required"
       });
     }
 
-    // Get user data and MongoDB _id
-    let user;
-    if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
-      user = await User.findOne({ userId: userIdentifier }).select('_id name phone email userId');
-    } else {
-      user = await User.findById(userIdentifier).select('_id name phone email userId');
+    // Validate package exists and is active
+    const packageExists = await Package.findOne({ _id: packageId, isActive: true });
+    if (!packageExists) {
+      return res.status(404).json({
+        success: false,
+        message: "Active package not found"
+      });
     }
+
+    // Validate barber exists and is active
+    const barberExists = await Barber.findOne({ _id: barberId, isActive: true });
+    if (!barberExists) {
+      return res.status(404).json({
+        success: false,
+        message: "Active barber not found"
+      });
+    }
+
+    // Validate schedule is available
+    const schedule = await Schedule.findOne({ 
+      _id: scheduleId, 
+      status: 'available',
+      barber: barberId
+    });
     
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found"
-      });
-    }
-
-    // Determine customer info
-    let customerInfo = {};
-    
-    if (customerData && customerData.name && customerData.phone) {
-      // Manual customer data (booking for others)
-      customerInfo = {
-        name: customerData.name,
-        phone: customerData.phone,
-        email: customerData.email || "",
-        isOwnProfile: customerData.isOwnProfile || false
-      };
-    } else {
-      // Use profile data (booking for self)
-      customerInfo = {
-        name: user.name,
-        phone: user.phone,
-        email: user.email,
-        isOwnProfile: true
-      };
-    }
-
-    // Validate package exists
-    const package = await Package.findById(packageId);
-    if (!package) {
-      return res.status(404).json({
-        success: false,
-        message: "Package not found"
-      });
-    }
-
-    // Validate barber exists
-    const barber = await Barber.findById(barberId);
-    if (!barber) {
-      return res.status(404).json({
-        success: false,
-        message: "Barber not found"
-      });
-    }
-
-    // Validate and update schedule
-    const schedule = await Schedule.findById(scheduleId);
     if (!schedule) {
-      return res.status(404).json({
-        success: false,
-        message: "Schedule not found"
-      });
-    }
-
-    if (schedule.status !== 'available') {
       return res.status(400).json({
         success: false,
-        message: "Selected time slot is no longer available"
+        message: "Schedule is not available or doesn't belong to the specified barber"
       });
     }
 
-    // Create reservation using MongoDB _id for customer field
+    // Handle customer - find or create
+    let customer;
+    
+    if (userId) {
+      // Try to find existing customer by userId
+      customer = await User.findOne({ userId: userId, role: 'customer' });
+      if (!customer) {
+        return res.status(404).json({
+          success: false,
+          message: "Customer not found with provided userId"
+        });
+      }
+    } else {
+      // Try to find existing customer by phone or email
+      customer = await User.findOne({
+        role: 'customer',
+        $or: [
+          { phone: phone },
+          { email: email.toLowerCase() }
+        ]
+      });
+
+      // If customer doesn't exist, create new one
+      if (!customer) {
+        const customerCount = await User.countDocuments({ role: 'customer' });
+        const newUserId = `USR-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(customerCount + 1).padStart(4, '0')}`;
+        
+        customer = new User({
+          userId: newUserId,
+          name: name.trim(),
+          email: email.toLowerCase().trim(),
+          phone: phone.trim(),
+          role: 'customer',
+          password: await bcrypt.hash('defaultPassword123', 10) // Default password
+        });
+        
+        await customer.save();
+      }
+    }
+
+    // Create reservation (reservationId will be auto-generated)
     const reservation = new Reservation({
-      customer: user._id,  // Use MongoDB _id, not userId string
+      customer: customer._id,
+      customerName: name.trim(),
+      customerPhone: phone.trim(),
+      customerEmail: email.toLowerCase().trim(),
       package: packageId,
       barber: barberId,
       schedule: scheduleId,
-      customerName: customerInfo.name,
-      customerPhone: customerInfo.phone,
-      customerEmail: customerInfo.email,
-      totalPrice: package.price,
-      notes: notes || "",
-      status: "pending",
-      isOwnProfile: customerInfo.isOwnProfile
+      totalPrice: packageExists.price,
+      notes: notes.trim(),
+      status: 'pending'
     });
 
-    await reservation.save();
+    // Save reservation
+    const savedReservation = await reservation.save();
 
     // Update schedule status to booked
-    schedule.status = 'booked';
-    schedule.reservation = reservation._id;
-    await schedule.save();
+    await Schedule.findByIdAndUpdate(scheduleId, { 
+      status: 'booked',
+      reservation: savedReservation._id
+    });
 
-    // Populate reservation for response
-    const populatedReservation = await Reservation.findById(reservation._id)
-      .populate({
-        path: 'customer',
-        select: 'name email phone userId'
-      })
-      .populate({
-        path: 'package',
-        select: 'name price description duration'
-      })
-      .populate({
-        path: 'barber',
-        select: 'name email phone specialization'
-      })
-      .populate({
-        path: 'schedule',
-        select: 'scheduled_time timeSlot date'
-      });
+    // Populate the saved reservation for response
+    await savedReservation.populate([
+      { path: 'customer', select: 'userId name email phone' },
+      { path: 'package', select: 'name price duration' },
+      { path: 'barber', select: 'name barberId' },
+      { path: 'schedule', select: 'date timeSlot scheduled_time' }
+    ]);
 
     res.status(201).json({
       success: true,
-      message: "Reservation created successfully. Please wait for admin confirmation.",
-      data: populatedReservation
+      message: "Reservation created successfully",
+      data: {
+        reservation: savedReservation,
+        customerInfo: {
+          isNewCustomer: !userId,
+          customer: customer
+        }
+      }
     });
 
   } catch (error) {
-    console.error("Error creating reservation:", error);
+    console.error('Create reservation error:', error);
+    
+    // Handle duplicate key errors
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "Duplicate reservation or customer data",
+        error: error.message
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: "Error creating reservation",
