@@ -891,14 +891,13 @@ const verifyPayment = async (req, res) => {
     payment.verifiedAt = new Date();
     await payment.save();
 
-    // Update reservation status - INI YANG BERUBAH
+    // Update reservation status
     const reservation = payment.reservationId;
     if (status === 'verified') {
       // Jika payment verified, maka reservation otomatis confirmed
       reservation.status = 'confirmed';
       reservation.confirmedAt = new Date();
       
-      // TAMBAHAN: Track cashier yang confirm
       if (typeof (req.user.userId || req.user.id) === 'string' && (req.user.userId || req.user.id).startsWith('USR-')) {
         const cashier = await User.findOne({ userId: req.user.userId || req.user.id });
         reservation.confirmedBy = cashier?._id;
@@ -914,9 +913,23 @@ const verifyPayment = async (req, res) => {
     }
     await reservation.save();
 
+    // ✅ FIX: UPDATE SCHEDULE STATUS JUGA
+    const Schedule = require('../models/Schedule');
+    
+    if (status === 'verified') {
+      // Jika payment approved, schedule tetap booked (tidak ada perubahan)
+      // Schedule sudah booked saat reservation dibuat
+    } else {
+      // ✅ JIKA PAYMENT REJECTED, KEMBALIKAN SCHEDULE KE AVAILABLE
+      await Schedule.findByIdAndUpdate(reservation.schedule, {
+        status: 'available',
+        reservation: null // Hapus referensi reservation
+      });
+    }
+
     const message = status === 'verified' 
       ? 'Payment verified and reservation confirmed successfully' 
-      : 'Payment rejected and reservation cancelled';
+      : 'Payment rejected, reservation cancelled, and schedule made available again';
 
     res.status(200).json({
       success: true,
@@ -926,8 +939,9 @@ const verifyPayment = async (req, res) => {
         reservationId: reservation._id,
         paymentStatus: payment.status,
         reservationStatus: reservation.status,
+        scheduleStatus: status === 'verified' ? 'booked' : 'available', // ✅ Include schedule status info
         verificationNote: payment.verificationNote,
-        actionTaken: status === 'verified' ? 'Reservation Confirmed' : 'Reservation Cancelled',
+        actionTaken: status === 'verified' ? 'Reservation Confirmed' : 'Reservation Cancelled & Schedule Released',
         confirmedBy: reservation.confirmedBy
       }
     });
