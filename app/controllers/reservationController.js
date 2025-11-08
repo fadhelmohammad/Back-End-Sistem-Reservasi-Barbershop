@@ -3,6 +3,7 @@ const Package = require("../models/Package");
 const Barber = require("../models/Barber");
 const Schedule = require("../models/Schedule");
 const User = require("../models/User");
+const bcrypt = require('bcryptjs');
 
 // Get available packages for reservation
 const getAvailablePackages = async (req, res) => {
