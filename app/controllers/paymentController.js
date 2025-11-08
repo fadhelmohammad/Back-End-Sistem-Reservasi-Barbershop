@@ -884,46 +884,49 @@ const verifyPayment = async (req, res) => {
       });
     }
 
+    // ✅ Get cashier ObjectId directly from req.user
+    const cashierObjectId = req.user.userId || req.user.id || req.user._id;
+    let cashierId;
+    
+    // If cashierObjectId is string like "USR-001", find the actual MongoDB ObjectId
+    if (typeof cashierObjectId === 'string' && cashierObjectId.startsWith('USR-')) {
+      const cashier = await User.findOne({ userId: cashierObjectId });
+      cashierId = cashier._id; // This is the MongoDB ObjectId
+    } else {
+      // cashierObjectId is already MongoDB ObjectId
+      cashierId = cashierObjectId;
+    }
+
     // Update payment
     payment.status = status;
     payment.verificationNote = verificationNote || '';
-    payment.verifiedBy = req.user.userId || req.user.id;
+    payment.verifiedBy = cashierId; // ✅ Save MongoDB ObjectId
     payment.verifiedAt = new Date();
     await payment.save();
 
     // Update reservation status
     const reservation = payment.reservationId;
     if (status === 'verified') {
-      // Jika payment verified, maka reservation otomatis confirmed
       reservation.status = 'confirmed';
       reservation.confirmedAt = new Date();
-      
-      if (typeof (req.user.userId || req.user.id) === 'string' && (req.user.userId || req.user.id).startsWith('USR-')) {
-        const cashier = await User.findOne({ userId: req.user.userId || req.user.id });
-        reservation.confirmedBy = cashier?._id;
-      } else {
-        reservation.confirmedBy = req.user.userId || req.user.id;
-      }
-      
+      reservation.confirmedBy = cashierId; // ✅ Save MongoDB ObjectId
     } else {
-      // Jika payment rejected, maka reservation cancelled
       reservation.status = 'cancelled';
       reservation.cancelledAt = new Date();
       reservation.cancelReason = verificationNote || 'Payment rejected by cashier';
     }
     await reservation.save();
 
-    // ✅ FIX: UPDATE SCHEDULE STATUS JUGA
+    // Update schedule status
     const Schedule = require('../models/Schedule');
     
     if (status === 'verified') {
-      // Jika payment approved, schedule tetap booked (tidak ada perubahan)
-      // Schedule sudah booked saat reservation dibuat
+      // Schedule tetap booked untuk service
     } else {
-      // ✅ JIKA PAYMENT REJECTED, KEMBALIKAN SCHEDULE KE AVAILABLE
+      // Kembalikan schedule ke available jika payment rejected
       await Schedule.findByIdAndUpdate(reservation.schedule, {
         status: 'available',
-        reservation: null // Hapus referensi reservation
+        reservation: null
       });
     }
 
@@ -931,6 +934,7 @@ const verifyPayment = async (req, res) => {
       ? 'Payment verified and reservation confirmed successfully' 
       : 'Payment rejected, reservation cancelled, and schedule made available again';
 
+    // ✅ Response dengan cashier ObjectId
     res.status(200).json({
       success: true,
       message: message,
@@ -939,10 +943,11 @@ const verifyPayment = async (req, res) => {
         reservationId: reservation._id,
         paymentStatus: payment.status,
         reservationStatus: reservation.status,
-        scheduleStatus: status === 'verified' ? 'booked' : 'available', // ✅ Include schedule status info
+        scheduleStatus: status === 'verified' ? 'booked' : 'available',
         verificationNote: payment.verificationNote,
         actionTaken: status === 'verified' ? 'Reservation Confirmed' : 'Reservation Cancelled & Schedule Released',
-        confirmedBy: reservation.confirmedBy
+        cashierId: cashierId, // ✅ Return MongoDB ObjectId (bukan userId string)
+        verifiedAt: payment.verifiedAt
       }
     });
 
