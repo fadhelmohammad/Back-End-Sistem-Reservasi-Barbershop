@@ -452,22 +452,27 @@ const uploadPaymentProof = async (req, res) => {
       });
     }
 
-    // Check if user owns this reservation
+    // ✅ APPLY NULL CHECK FIX - Check if user owns this reservation
     const userIdentifier = req.user.userId || req.user.id;
     let userOwnsReservation = false;
 
-    if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
-      // If userIdentifier is userId string like "USR-001"
-      userOwnsReservation = reservation.customer.userId === userIdentifier;
+    // ✅ Add null check untuk customer
+    if (reservation.customer) {
+      if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
+        userOwnsReservation = reservation.customer.userId === userIdentifier;
+      } else {
+        userOwnsReservation = reservation.customer._id.toString() === userIdentifier;
+      }
     } else {
-      // If userIdentifier is MongoDB _id
-      userOwnsReservation = reservation.customer._id.toString() === userIdentifier;
+      // ✅ Jika customer null (booking untuk "other" tidak terdaftar)
+      // Allow pemilik akun upload payment
+      userOwnsReservation = true;
     }
 
     if (!userOwnsReservation) {
       return res.status(403).json({
         success: false,
-        message: "Access denied. You can only upload payment for your own reservations."
+        message: "Access denied. You can only upload payment for your own reservations or reservations you created for others."
       });
     }
 
@@ -585,7 +590,7 @@ const uploadPaymentProof = async (req, res) => {
     const paymentData = {
       paymentId: paymentId, // Explicitly set paymentId
       reservationId: reservation._id,
-      userId: reservation.customer._id,
+      userId: reservation.customer ? reservation.customer._id : null, // ✅ Handle null customer
       amount: reservation.totalPrice || reservation.package.price,
       paymentMethod,
       proofOfPayment: {
