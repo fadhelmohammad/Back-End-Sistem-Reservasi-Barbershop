@@ -225,23 +225,190 @@ const createReservation = async (req, res) => {
   }
 };
 
-// Get all reservations with full details
+// Get all reservations with full details AND FILTER
 const getAllReservations = async (req, res) => {
   try {
-    const reservations = await Reservation.find()
-      .populate('customer', 'name email')
+    const { 
+      status, 
+      page = 1, 
+      limit = 10, 
+      sortBy = 'createdAt', 
+      sortOrder = 'desc',
+      barberId,
+      packageId,
+      startDate,
+      endDate
+    } = req.query;
+
+    // ✅ Build query object with filters
+    let query = {};
+
+    // ✅ Filter by status
+    if (status) {
+      if (status.includes(',')) {
+        // Multiple statuses: ?status=pending,confirmed
+        const statusArray = status.split(',').map(s => s.trim());
+        query.status = { $in: statusArray };
+      } else {
+        // Single status: ?status=pending
+        query.status = status.trim();
+      }
+    }
+
+    // ✅ Filter by barber
+    if (barberId) {
+      query.barber = barberId;
+    }
+
+    // ✅ Filter by package
+    if (packageId) {
+      query.package = packageId;
+    }
+
+    // ✅ Filter by date range
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) {
+        query.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = endDateObj;
+      }
+    }
+
+    // ✅ Pagination
+    const skip = (page - 1) * limit;
+    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
+
+    console.log('🔍 DEBUG - Query:', query); // Debug log
+
+    // ✅ Execute query with filters
+    const reservations = await Reservation.find(query)
+      .populate('customer', 'name email phone userId')
+      .populate('createdBy', 'name email userId')
       .populate('package', 'name price description')
-      .populate('barber', 'name email phone')
-      .populate('schedule', 'scheduled_time')
-      .sort({ createdAt: -1 });
+      .populate('barber', 'name email phone specialization')
+      .populate('schedule', 'scheduled_time date timeSlot')
+      .populate('confirmedBy', 'name email role')
+      .sort(sort)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    // ✅ Get payment data for these reservations
+    const reservationIds = reservations.map(r => r._id);
+    const { Payment } = require('../models/Payment');
+    const payments = await Payment.find({ 
+      reservationId: { $in: reservationIds },
+      status: { $in: ['pending', 'verified', 'rejected'] }
+    })
+      .populate('verifiedBy', 'name role userId')
+      .select('reservationId paymentId amount paymentMethod status verifiedAt verificationNote uploadedAt rejectedAt');
+
+    // ✅ Map payments to reservations
+    const paymentMap = {};
+    payments.forEach(payment => {
+      paymentMap[payment.reservationId.toString()] = payment;
+    });
+
+    // ✅ Total count for pagination
+    const totalReservations = await Reservation.countDocuments(query);
+
+    // ✅ Format response with payment info
+    const formattedReservations = reservations.map(reservation => {
+      const payment = paymentMap[reservation._id.toString()];
+      
+      return {
+        _id: reservation._id,
+        reservationId: reservation.reservationId,
+        status: reservation.status,
+        customerName: reservation.customerName,
+        customerPhone: reservation.customerPhone,
+        customerEmail: reservation.customerEmail,
+        notes: reservation.notes,
+        totalPrice: reservation.totalPrice,
+        
+        // Related data
+        customer: reservation.customer,
+        createdBy: reservation.createdBy,
+        package: reservation.package,
+        barber: reservation.barber,
+        schedule: reservation.schedule,
+        confirmedBy: reservation.confirmedBy,
+        
+        // Payment information
+        payment: payment ? {
+          paymentId: payment.paymentId,
+          amount: payment.amount,
+          paymentMethod: payment.paymentMethod,
+          status: payment.status,
+          verificationNote: payment.verificationNote,
+          uploadedAt: payment.uploadedAt,
+          verifiedAt: payment.verifiedAt,
+          rejectedAt: payment.rejectedAt,
+          verifiedBy: payment.verifiedBy ? {
+            name: payment.verifiedBy.name,
+            role: payment.verifiedBy.role,
+            userId: payment.verifiedBy.userId
+          } : null
+        } : null,
+        
+        // Status descriptions
+        finalStatus: getFinalStatus(reservation.status, payment?.status),
+        statusDescription: getStatusDescription(reservation.status, payment?.status),
+        
+        // Timestamps
+        createdAt: reservation.createdAt,
+        updatedAt: reservation.updatedAt,
+        confirmedAt: reservation.confirmedAt,
+        completedAt: reservation.completedAt,
+        cancelledAt: reservation.cancelledAt
+      };
+    });
+
+    // ✅ Statistics by status
+    const statusBreakdown = await Reservation.aggregate([
+      { $match: query },
+      { $group: { _id: '$status', count: { $sum: 1 } } }
+    ]);
+
+    const statusStats = {};
+    statusBreakdown.forEach(stat => {
+      statusStats[stat._id] = stat.count;
+    });
 
     res.status(200).json({
       success: true,
       message: "Reservations retrieved successfully",
-      data: reservations,
-      count: reservations.length
+      data: {
+        reservations: formattedReservations,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalReservations / limit),
+          totalItems: totalReservations,
+          itemsPerPage: parseInt(limit),
+          hasNextPage: page * limit < totalReservations,
+          hasPrevPage: page > 1
+        },
+        statistics: {
+          total: totalReservations,
+          byStatus: statusStats,
+          currentPageCount: formattedReservations.length
+        },
+        filters: {
+          status,
+          barberId,
+          packageId,
+          dateRange: { startDate, endDate },
+          pagination: { page, limit },
+          sort: { sortBy, sortOrder }
+        }
+      }
     });
+
   } catch (error) {
+    console.error('Get all reservations error:', error);
     res.status(500).json({
       success: false,
       message: "Error retrieving reservations",
