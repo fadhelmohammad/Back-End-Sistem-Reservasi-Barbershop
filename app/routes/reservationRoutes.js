@@ -9,26 +9,20 @@ const {
   getAllReservations,
   getReservationById,
   getUserReservations,
-  getConfirmedReservations, // TAMBAHAN INI
+  getConfirmedReservations,
   updateReservationStatus,
   cancelReservation,
   deleteReservation
 } = require("../controllers/reservationController");
 
 const {
-  getRegisteredData,
-  getBookingOptions,
-  validateCustomerData,
-  setBookingType
-} = require("../controllers/customerDataController");
+  submitCustomerData
+} = require("../controllers/preReservationController");
 
 const { authMiddleware, checkRole } = require("../middleware/authMiddleware");
 
-// Pre-reservation: Customer data options (CUSTOMER ACCESS)
-router.get("/booking-options", authMiddleware, getBookingOptions);
-router.post("/set-booking-type", authMiddleware, setBookingType);
-router.get("/customer-data", authMiddleware, getRegisteredData);
-router.post("/validate-customer", authMiddleware, validateCustomerData);
+// ✅ NEW: Pre-reservation data input (CUSTOMER ACCESS)
+router.post("/customer-data", authMiddleware, submitCustomerData);
 
 // Step-by-step reservation process (PUBLIC/CUSTOMER ACCESS)
 router.get("/packages", getAvailablePackages);
@@ -42,9 +36,9 @@ router.patch("/:id/cancel", authMiddleware, cancelReservation);
 
 // Admin & Cashier routes (ADMIN or CASHIER ACCESS)
 router.get("/", authMiddleware, checkRole(['ADMIN', 'cashier']), getAllReservations);
-router.get("/confirmed", authMiddleware, checkRole(['ADMIN', 'cashier']), getConfirmedReservations); // TAMBAHAN
+router.get("/confirmed", authMiddleware, checkRole(['ADMIN', 'cashier']), getConfirmedReservations);
 router.get("/:id", authMiddleware, checkRole(['ADMIN', 'cashier']), getReservationById);
 router.patch("/:id/status", authMiddleware, checkRole(['ADMIN', 'cashier']), updateReservationStatus);
-router.delete("/:id", authMiddleware, checkRole(['ADMIN', 'cashier']), deleteReservation);
+router.delete("/:id", authMiddleware, checkRole(['ADMIN']), deleteReservation);
 
 module.exports = router;

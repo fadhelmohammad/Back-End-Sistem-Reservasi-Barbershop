@@ -101,9 +101,7 @@ const createReservation = async (req, res) => {
       notes = "",
       name,
       phone,
-      email,
-      userId,
-      isOwnProfile = true
+      email
     } = req.body;
 
     // Validate required fields
@@ -111,6 +109,22 @@ const createReservation = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: "Package, barber, schedule, name, phone, and email are required"
+      });
+    }
+
+    // ✅ Get current user (who is creating the reservation)
+    const userIdentifier = req.user.userId || req.user.id;
+    let currentUser;
+    if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
+      currentUser = await User.findOne({ userId: userIdentifier }).select('_id userId name');
+    } else {
+      currentUser = await User.findById(userIdentifier).select('_id userId name');
+    }
+
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: "Current user not found"
       });
     }
 
@@ -146,52 +160,13 @@ const createReservation = async (req, res) => {
       });
     }
 
-    // Handle customer - find or create
-    let customer;
-    
-    if (userId) {
-      // Try to find existing customer by userId
-      customer = await User.findOne({ userId: userId, role: 'customer' });
-      if (!customer) {
-        return res.status(404).json({
-          success: false,
-          message: "Customer not found with provided userId"
-        });
-      }
-    } else {
-      // Try to find existing customer by phone or email
-      customer = await User.findOne({
-        role: 'customer',
-        $or: [
-          { phone: phone },
-          { email: email.toLowerCase() }
-        ]
-      });
-
-      // If customer doesn't exist, create new one
-      if (!customer) {
-        const customerCount = await User.countDocuments({ role: 'customer' });
-        const newUserId = `USR-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${String(customerCount + 1).padStart(4, '0')}`;
-        
-        customer = new User({
-          userId: newUserId,
-          name: name.trim(),
-          email: email.toLowerCase().trim(),
-          phone: phone.trim(),
-          role: 'customer',
-          password: await bcrypt.hash('defaultPassword123', 10) // Default password
-        });
-        
-        await customer.save();
-      }
-    }
-
-    // Create reservation (reservationId will be auto-generated)
+    // ✅ SIMPLIFIED: Always manual booking - no customer reference
     const reservation = new Reservation({
-      customer: customer._id,
+      customer: null, // ✅ Always null - manual booking only
       customerName: name.trim(),
       customerPhone: phone.trim(),
       customerEmail: email.toLowerCase().trim(),
+      createdBy: currentUser._id, // ✅ User yang membuat reservation
       package: packageId,
       barber: barberId,
       schedule: scheduleId,
@@ -212,6 +187,7 @@ const createReservation = async (req, res) => {
     // Populate the saved reservation for response
     await savedReservation.populate([
       { path: 'customer', select: 'userId name email phone' },
+      { path: 'createdBy', select: 'userId name email' },
       { path: 'package', select: 'name price duration' },
       { path: 'barber', select: 'name barberId' },
       { path: 'schedule', select: 'date timeSlot scheduled_time' }
@@ -222,9 +198,9 @@ const createReservation = async (req, res) => {
       message: "Reservation created successfully",
       data: {
         reservation: savedReservation,
-        customerInfo: {
-          isNewCustomer: !userId,
-          customer: customer
+        info: {
+          createdBy: savedReservation.createdBy,
+          isManualBooking: true // ✅ Always manual
         }
       }
     });
@@ -236,7 +212,7 @@ const createReservation = async (req, res) => {
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
-        message: "Duplicate reservation or customer data",
+        message: "Duplicate reservation error",
         error: error.message
       });
     }
@@ -360,8 +336,21 @@ const getUserReservations = async (req, res) => {
       });
     }
 
-    // Query reservations using MongoDB _id
-    const reservations = await Reservation.find({ customer: user._id })
+    // ✅ Query reservations - include both customer and createdBy
+    const reservations = await Reservation.find({
+      $or: [
+        { customer: user._id }, // Reservations where user is the customer (self booking)
+        { createdBy: user._id }  // Reservations created by user (manual booking)
+      ]
+    })
+      .populate({
+        path: 'customer',
+        select: 'name email phone userId'
+      })
+      .populate({
+        path: 'createdBy',
+        select: 'name email userId'
+      })
       .populate({
         path: 'package',
         select: 'name price description duration'
@@ -376,11 +365,45 @@ const getUserReservations = async (req, res) => {
       })
       .sort({ createdAt: -1 });
 
+    // ✅ Format response with booking type info
+    const formattedReservations = reservations.map(reservation => ({
+      _id: reservation._id,
+      reservationId: reservation.reservationId,
+      status: reservation.status,
+      customerName: reservation.customerName,
+      customerPhone: reservation.customerPhone,
+      customerEmail: reservation.customerEmail,
+      notes: reservation.notes,
+      totalPrice: reservation.totalPrice,
+      
+      // Booking type info
+      bookingType: reservation.customer ? "self" : "manual",
+      isSelfBooking: reservation.customer && reservation.customer._id.toString() === user._id.toString(),
+      isManualBooking: !reservation.customer,
+      canPayment: true, // ✅ Always true karena user yang buat reservation
+      
+      // Related data
+      customer: reservation.customer,
+      createdBy: reservation.createdBy,
+      package: reservation.package,
+      barber: reservation.barber,
+      schedule: reservation.schedule,
+      
+      // Timestamps
+      createdAt: reservation.createdAt,
+      updatedAt: reservation.updatedAt
+    }));
+
     res.status(200).json({
       success: true,
       message: "User reservations retrieved successfully",
-      data: reservations,
-      count: reservations.length
+      data: formattedReservations,
+      count: formattedReservations.length,
+      summary: {
+        selfBookings: formattedReservations.filter(r => r.isSelfBooking).length,
+        manualBookings: formattedReservations.filter(r => r.isManualBooking).length,
+        total: formattedReservations.length
+      }
     });
 
   } catch (error) {

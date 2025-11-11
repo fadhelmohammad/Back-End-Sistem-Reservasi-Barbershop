@@ -9,7 +9,7 @@ const reservationSchema = new mongoose.Schema({
   customer: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: false // ✅ CHANGED: tidak required untuk booking manual
   },
   customerName: {
     type: String,
@@ -21,6 +21,11 @@ const reservationSchema = new mongoose.Schema({
   },
   customerEmail: {
     type: String,
+    required: true
+  },
+  createdBy: { // ✅ TAMBAHAN: siapa yang membuat reservation
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
     required: true
   },
   package: {
@@ -82,6 +87,7 @@ reservationSchema.pre('save', async function(next) {
 
 // Indexes for better query performance
 reservationSchema.index({ customer: 1, status: 1 });
+reservationSchema.index({ createdBy: 1, status: 1 }); // ✅ NEW INDEX
 reservationSchema.index({ barber: 1, status: 1 });
 reservationSchema.index({ schedule: 1 });
 reservationSchema.index({ createdAt: -1 });

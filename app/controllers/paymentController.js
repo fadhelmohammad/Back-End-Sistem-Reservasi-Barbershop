@@ -424,14 +424,6 @@ const uploadPaymentProof = async (req, res) => {
   try {
     const { reservationId, paymentMethod, selectedAccount } = req.body;
     
-    console.log('Upload payment proof request:', {
-      reservationId,
-      paymentMethod,
-      selectedAccount: typeof selectedAccount === 'string' ? selectedAccount : JSON.stringify(selectedAccount),
-      file: req.file ? 'File uploaded' : 'No file',
-      userId: req.user.userId || req.user.id
-    });
-
     // Validate required fields
     if (!reservationId || !paymentMethod || !selectedAccount) {
       return res.status(400).json({
@@ -440,9 +432,9 @@ const uploadPaymentProof = async (req, res) => {
       });
     }
 
-    // Validate reservation exists and belongs to user
+    // Validate reservation exists
     const reservation = await Reservation.findById(reservationId)
-      .populate('customer', '_id userId')
+      .populate('createdBy', '_id userId')
       .populate('package', 'name price');
 
     if (!reservation) {
@@ -452,31 +444,31 @@ const uploadPaymentProof = async (req, res) => {
       });
     }
 
-    // ✅ APPLY NULL CHECK FIX - Check if user owns this reservation
+    // ✅ SIMPLIFIED AUTHORIZATION: Only check createdBy
     const userIdentifier = req.user.userId || req.user.id;
-    let userOwnsReservation = false;
-
-    // ✅ Add null check untuk customer
-    if (reservation.customer) {
-      if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
-        userOwnsReservation = reservation.customer.userId === userIdentifier;
-      } else {
-        userOwnsReservation = reservation.customer._id.toString() === userIdentifier;
-      }
+    let currentUser;
+    if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
+      currentUser = await User.findOne({ userId: userIdentifier }).select('_id userId');
     } else {
-      // ✅ Jika customer null (booking untuk "other" tidak terdaftar)
-      // Allow pemilik akun upload payment
-      userOwnsReservation = true;
+      currentUser = await User.findById(userIdentifier).select('_id userId');
     }
 
-    if (!userOwnsReservation) {
-      return res.status(403).json({
+    if (!currentUser) {
+      return res.status(404).json({
         success: false,
-        message: "Access denied. You can only upload payment for your own reservations or reservations you created for others."
+        message: "User not found"
       });
     }
 
-    // Check if reservation status allows payment - hanya 'pending' yang diizinkan
+    // ✅ AUTHORIZATION: Only createdBy can upload payment
+    if (reservation.createdBy._id.toString() !== currentUser._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. You can only upload payment for reservations you created."
+      });
+    }
+
+    // Check if reservation status allows payment
     if (reservation.status !== 'pending') {
       return res.status(400).json({
         success: false,
@@ -484,7 +476,7 @@ const uploadPaymentProof = async (req, res) => {
       });
     }
 
-    // Check if payment already exists for this reservation
+    // Check if payment already exists
     const existingPayment = await Payment.findOne({ reservationId: reservation._id });
     if (existingPayment) {
       return res.status(400).json({
@@ -531,27 +523,21 @@ const uploadPaymentProof = async (req, res) => {
     // Parse selectedAccount with better error handling
     let accountDetails;
     try {
-      // If selectedAccount is already an object, use it directly
       if (typeof selectedAccount === 'object' && selectedAccount !== null) {
         accountDetails = selectedAccount;
       } else if (typeof selectedAccount === 'string') {
         let jsonString = selectedAccount.trim();
         
-        // Handle case where string contains "selectedAccount: {JSON}" format
         if (jsonString.startsWith('selectedAccount:')) {
           jsonString = jsonString.replace(/^selectedAccount:\s*/, '').trim();
         }
         
-        // Remove any trailing newlines or whitespace
         jsonString = jsonString.replace(/\n$/, '').trim();
-        
-        // Try to parse JSON string
         accountDetails = JSON.parse(jsonString);
       } else {
         throw new Error('selectedAccount must be an object or valid JSON string');
       }
 
-      // Validate accountDetails has required fields
       if (!accountDetails || typeof accountDetails !== 'object') {
         throw new Error('selectedAccount must contain account details');
       }
@@ -574,23 +560,20 @@ const uploadPaymentProof = async (req, res) => {
         message: `Invalid selectedAccount format: ${parseError.message}`,
         receivedData: {
           type: typeof selectedAccount,
-          value: selectedAccount,
-          cleanedValue: typeof selectedAccount === 'string' ? 
-            selectedAccount.replace(/^selectedAccount:\s*/, '').trim().replace(/\n$/, '') : 
-            'Not a string'
+          value: selectedAccount
         }
       });
     }
 
-    // Generate paymentId manually to ensure it's created
+    // Generate paymentId manually
     const paymentCount = await Payment.countDocuments();
     const paymentId = `PAY${String(paymentCount + 1).padStart(3, '0')}`;
 
     // Create payment record
     const paymentData = {
-      paymentId: paymentId, // Explicitly set paymentId
+      paymentId: paymentId,
       reservationId: reservation._id,
-      userId: reservation.customer ? reservation.customer._id : null, // ✅ Handle null customer
+      userId: currentUser._id, // ✅ Use createdBy as userId
       amount: reservation.totalPrice || reservation.package.price,
       paymentMethod,
       proofOfPayment: {
@@ -615,19 +598,12 @@ const uploadPaymentProof = async (req, res) => {
       };
     }
 
-    console.log('Creating payment with data:', paymentData);
-
     const payment = new Payment(paymentData);
     await payment.save();
 
-    console.log('Payment saved successfully:', payment.paymentId);
-
-    // TIDAK update reservation status - tetap 'pending' sampai cashier verify
-    // Hanya simpan referensi payment ID
+    // Update reservation with payment reference
     reservation.paymentId = payment._id;
     await reservation.save();
-
-    console.log('Reservation updated with payment ID');
 
     res.status(201).json({
       success: true,
@@ -635,17 +611,17 @@ const uploadPaymentProof = async (req, res) => {
       data: {
         paymentId: payment.paymentId,
         reservationId: reservation._id,
-        reservationStatus: reservation.status, // masih 'pending'
-        paymentStatus: payment.status, // 'pending'
+        reservationStatus: reservation.status,
+        paymentStatus: payment.status,
         proofUrl: payment.proofOfPayment.url,
         amount: payment.amount,
-        paymentMethod: payment.paymentMethod
+        paymentMethod: payment.paymentMethod,
+        uploadedBy: currentUser.userId || currentUser._id
       }
     });
 
   } catch (error) {
     console.error('Upload payment proof error:', error);
-    
     res.status(500).json({
       success: false,
       message: "Error uploading payment proof",
