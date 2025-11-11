@@ -367,44 +367,12 @@ const getAllReservations = async (req, res) => {
       };
     });
 
-    // ✅ Statistics by status
-    const statusBreakdown = await Reservation.aggregate([
-      { $match: query },
-      { $group: { _id: '$status', count: { $sum: 1 } } }
-    ]);
-
-    const statusStats = {};
-    statusBreakdown.forEach(stat => {
-      statusStats[stat._id] = stat.count;
-    });
-
+    // ✅ SIMPLIFIED RESPONSE - HANYA COUNT
     res.status(200).json({
       success: true,
       message: "Reservations retrieved successfully",
-      data: {
-        reservations: formattedReservations,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(totalReservations / limit),
-          totalItems: totalReservations,
-          itemsPerPage: parseInt(limit),
-          hasNextPage: page * limit < totalReservations,
-          hasPrevPage: page > 1
-        },
-        statistics: {
-          total: totalReservations,
-          byStatus: statusStats,
-          currentPageCount: formattedReservations.length
-        },
-        filters: {
-          status,
-          barberId,
-          packageId,
-          dateRange: { startDate, endDate },
-          pagination: { page, limit },
-          sort: { sortBy, sortOrder }
-        }
-      }
+      data: formattedReservations,
+      count: totalReservations // ✅ Hanya count saja
     });
 
   } catch (error) {
