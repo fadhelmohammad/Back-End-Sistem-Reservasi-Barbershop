@@ -1,8 +1,9 @@
 const Reservation = require('../models/Reservation');
 const { Payment } = require('../models/Payment');
 const User = require('../models/User');
+const { getUserReservations } = require('./reservationController');
 
-// Admin: Melihat seluruh riwayat reservasi dari semua customer (pending, confirmed, rejected)
+// Admin: Melihat seluruh riwayat reservasi dari semua customer
 const getAllReservationHistory = async (req, res) => {
   try {
     const { 
@@ -21,13 +22,13 @@ const getAllReservationHistory = async (req, res) => {
     // Build query
     let query = {};
     
-    // Filter by reservation status (pending, confirmed, cancelled)
+    // Filter by reservation status
     if (status && status !== 'all') {
       query.status = status;
     }
     
     if (customerId) {
-      query.customer = customerId;
+      query.createdBy = customerId;
     }
     
     if (barberId) {
@@ -51,7 +52,7 @@ const getAllReservationHistory = async (req, res) => {
     const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
 
     const reservations = await Reservation.find(query)
-      .populate('customer', 'name email phone userId')
+      .populate('createdBy', 'name email phone userId')
       .populate('package', 'name price description services')
       .populate('barber', 'name barberId specialties')
       .populate('schedule', 'date timeSlot scheduled_time')
@@ -60,7 +61,7 @@ const getAllReservationHistory = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
-    // Get payment data separately to include rejected payments
+    // Get payment data separately
     const reservationIds = reservations.map(r => r._id);
     const payments = await Payment.find({ reservationId: { $in: reservationIds } })
       .populate('verifiedBy', 'name role userId')
@@ -74,7 +75,7 @@ const getAllReservationHistory = async (req, res) => {
 
     const totalReservations = await Reservation.countDocuments(query);
 
-    // Format response with complete data
+    // ✅ Format response for admin - all reservations (with null checks)
     const formattedHistory = reservations.map(reservation => {
       const payment = paymentMap[reservation._id.toString()];
       
@@ -82,50 +83,53 @@ const getAllReservationHistory = async (req, res) => {
         _id: reservation._id,
         reservationId: reservation.reservationId,
         
-        // Customer info
-        customer: {
-          _id: reservation.customer._id,
-          name: reservation.customer.name,
-          email: reservation.customer.email,
-          phone: reservation.customer.phone,
-          userId: reservation.customer.userId
-        },
+        // Customer info (manual data)
         customerName: reservation.customerName,
         customerPhone: reservation.customerPhone,
         customerEmail: reservation.customerEmail,
         
-        // Service details
-        package: {
+        // ✅ Who created this reservation (with null check)
+        createdBy: reservation.createdBy ? {
+          _id: reservation.createdBy._id,
+          name: reservation.createdBy.name,
+          email: reservation.createdBy.email,
+          phone: reservation.createdBy.phone,
+          userId: reservation.createdBy.userId
+        } : null,
+        
+        // ✅ Service details (with null checks)
+        package: reservation.package ? {
           _id: reservation.package._id,
           name: reservation.package.name,
           price: reservation.package.price,
           description: reservation.package.description,
           services: reservation.package.services
-        },
-        barber: {
+        } : null,
+        barber: reservation.barber ? {
           _id: reservation.barber._id,
           name: reservation.barber.name,
           barberId: reservation.barber.barberId,
           specialties: reservation.barber.specialties
-        },
-        schedule: {
+        } : null,
+        schedule: reservation.schedule ? {
           _id: reservation.schedule._id,
           date: reservation.schedule.date,
           timeSlot: reservation.schedule.timeSlot,
           scheduled_time: reservation.schedule.scheduled_time
-        },
+        } : null,
         
         // Reservation details
         totalPrice: reservation.totalPrice,
         status: reservation.status,
+        finalStatus: getFinalStatus(reservation.status, payment?.status),
         notes: reservation.notes,
         
-        // Payment info (including rejected payments)
+        // Payment info (full details for admin)
         payment: payment ? {
           paymentId: payment.paymentId,
           amount: payment.amount,
           paymentMethod: payment.paymentMethod,
-          status: payment.status, // pending, verified, rejected
+          status: payment.status,
           bankAccount: payment.bankAccount,
           eWallet: payment.eWallet,
           verificationNote: payment.verificationNote,
@@ -151,6 +155,7 @@ const getAllReservationHistory = async (req, res) => {
         createdAt: reservation.createdAt,
         updatedAt: reservation.updatedAt,
         confirmedAt: reservation.confirmedAt,
+        completedAt: reservation.completedAt,
         cancelledAt: reservation.cancelledAt,
         cancelReason: reservation.cancelReason,
         cancellationReason: reservation.cancellationReason
@@ -194,331 +199,7 @@ const getAllReservationHistory = async (req, res) => {
   }
 };
 
-// Admin: Melihat riwayat reservasi yang DIA verify (baik approve maupun reject) - SATU ENDPOINT
-const getAdminVerificationHistory = async (req, res) => {
-  try {
-    const adminId = req.user.userId || req.user.id;
-    const { 
-      page = 1, 
-      limit = 10, 
-      action, // 'verified' atau 'rejected' atau 'all'
-      startDate,
-      endDate,
-      customerId,
-      barberId,
-      sortBy = 'verifiedAt',
-      sortOrder = 'desc'
-    } = req.query;
-
-    // Find admin user
-    let adminObjectId;
-    if (typeof adminId === 'string' && adminId.startsWith('USR-')) {
-      const admin = await User.findOne({ userId: adminId });
-      if (!admin) {
-        return res.status(404).json({
-          success: false,
-          message: "Admin not found"
-        });
-      }
-      adminObjectId = admin._id;
-    } else {
-      adminObjectId = adminId;
-    }
-
-    // Build payment query - hanya payment yang di-verify oleh admin ini
-    let paymentQuery = {
-      verifiedBy: adminObjectId
-    };
-    
-    // Filter by verification action
-    if (action && action !== 'all') {
-      paymentQuery.status = action; // 'verified' atau 'rejected'
-    }
-    
-    // Filter by verification date
-    if (startDate || endDate) {
-      paymentQuery.verifiedAt = {};
-      if (startDate) {
-        paymentQuery.verifiedAt.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        const endDateObj = new Date(endDate);
-        endDateObj.setHours(23, 59, 59, 999);
-        paymentQuery.verifiedAt.$lte = endDateObj;
-      }
-    }
-
-    const skip = (page - 1) * limit;
-    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
-
-    // Get payments that admin verified
-    const payments = await Payment.find(paymentQuery)
-      .populate({
-        path: 'reservationId',
-        populate: [
-          { path: 'customer', select: 'name email phone userId' },
-          { path: 'package', select: 'name price description' },
-          { path: 'barber', select: 'name barberId specialties' },
-          { path: 'schedule', select: 'date timeSlot scheduled_time' }
-        ]
-      })
-      .sort(sort)
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    // Filter out payments where reservation doesn't exist (edge case)
-    const validPayments = payments.filter(payment => payment.reservationId);
-
-    const totalPayments = await Payment.countDocuments(paymentQuery);
-
-    // Format response
-    const formattedHistory = validPayments.map(payment => ({
-      _id: payment._id,
-      paymentId: payment.paymentId,
-      
-      // Verification info
-      verificationAction: payment.status, // 'verified' atau 'rejected'
-      verificationNote: payment.verificationNote,
-      verifiedAt: payment.verifiedAt,
-      
-      // Payment details
-      amount: payment.amount,
-      paymentMethod: payment.paymentMethod,
-      bankAccount: payment.bankAccount,
-      eWallet: payment.eWallet,
-      
-      // Reservation info
-      reservation: {
-        _id: payment.reservationId._id,
-        reservationId: payment.reservationId.reservationId,
-        status: payment.reservationId.status,
-        totalPrice: payment.reservationId.totalPrice,
-        notes: payment.reservationId.notes,
-        
-        // Customer info
-        customer: payment.reservationId.customer,
-        customerName: payment.reservationId.customerName,
-        customerPhone: payment.reservationId.customerPhone,
-        customerEmail: payment.reservationId.customerEmail,
-        
-        // Service details
-        package: payment.reservationId.package,
-        barber: payment.reservationId.barber,
-        schedule: payment.reservationId.schedule,
-        
-        // Timestamps
-        createdAt: payment.reservationId.createdAt,
-        confirmedAt: payment.reservationId.confirmedAt,
-        cancelledAt: payment.reservationId.cancelledAt
-      }
-    }));
-
-    // Statistics for admin verification activity
-    const verificationStats = await getAdminVerificationStats(adminObjectId);
-
-    res.status(200).json({
-      success: true,
-      message: "Admin verification history retrieved successfully",
-      data: {
-        verifications: formattedHistory,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(totalPayments / limit),
-          totalItems: totalPayments,
-          itemsPerPage: parseInt(limit),
-          hasNextPage: page * limit < totalPayments,
-          hasPrevPage: page > 1
-        },
-        statistics: verificationStats,
-        filters: {
-          action: action || 'all',
-          dateRange: { startDate, endDate },
-          customerId,
-          barberId
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('Get admin verification history error:', error);
-    res.status(500).json({
-      success: false,
-      message: "Error retrieving admin verification history",
-      error: error.message
-    });
-  }
-};
-
-// Customer: Melihat riwayat reservasi yang DIA lakukan
-const getCustomerReservationHistory = async (req, res) => {
-  try {
-    const userId = req.user.userId || req.user.id;
-    const { 
-      page = 1, 
-      limit = 10, 
-      status,
-      startDate,
-      endDate,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
-    } = req.query;
-
-    // Find customer user
-    let customerObjectId;
-    if (typeof userId === 'string' && userId.startsWith('USR-')) {
-      const customer = await User.findOne({ userId: userId });
-      if (!customer) {
-        return res.status(404).json({
-          success: false,
-          message: "Customer not found"
-        });
-      }
-      customerObjectId = customer._id;
-    } else {
-      customerObjectId = userId;
-    }
-
-    // Build query - hanya reservasi milik customer ini
-    let query = {
-      customer: customerObjectId
-    };
-    
-    if (status && status !== 'all') {
-      query.status = status;
-    }
-    
-    if (startDate || endDate) {
-      query.createdAt = {};
-      if (startDate) {
-        query.createdAt.$gte = new Date(startDate);
-      }
-      if (endDate) {
-        const endDateObj = new Date(endDate);
-        endDateObj.setHours(23, 59, 59, 999);
-        query.createdAt.$lte = endDateObj;
-      }
-    }
-
-    const skip = (page - 1) * limit;
-    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
-
-    const reservations = await Reservation.find(query)
-      .populate('package', 'name price description services duration')
-      .populate('barber', 'name barberId specialties')
-      .populate('schedule', 'date timeSlot scheduled_time')
-      .populate('confirmedBy', 'name role userId')
-      .sort(sort)
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    // Get payment data for these reservations
-    const reservationIds = reservations.map(r => r._id);
-    const payments = await Payment.find({ reservationId: { $in: reservationIds } })
-      .populate('verifiedBy', 'name role userId')
-      .select('reservationId paymentId amount paymentMethod status verifiedAt verificationNote');
-
-    // Map payments to reservations
-    const paymentMap = {};
-    payments.forEach(payment => {
-      paymentMap[payment.reservationId.toString()] = payment;
-    });
-
-    const totalReservations = await Reservation.countDocuments(query);
-
-    // Format response untuk customer (simplified, privacy-focused)
-    const formattedHistory = reservations.map(reservation => {
-      const payment = paymentMap[reservation._id.toString()];
-      
-      return {
-        _id: reservation._id,
-        reservationId: reservation.reservationId,
-        
-        // Service details
-        package: {
-          _id: reservation.package._id,
-          name: reservation.package.name,
-          price: reservation.package.price,
-          description: reservation.package.description,
-          services: reservation.package.services,
-          duration: reservation.package.duration
-        },
-        barber: {
-          _id: reservation.barber._id,
-          name: reservation.barber.name,
-          barberId: reservation.barber.barberId,
-          specialties: reservation.barber.specialties
-        },
-        schedule: {
-          _id: reservation.schedule._id,
-          date: reservation.schedule.date,
-          timeSlot: reservation.schedule.timeSlot,
-          scheduled_time: reservation.schedule.scheduled_time
-        },
-        
-        // Reservation details
-        totalPrice: reservation.totalPrice,
-        status: reservation.status,
-        finalStatus: getFinalStatus(reservation.status, payment?.status),
-        statusDescription: getStatusDescription(reservation.status, payment?.status),
-        notes: reservation.notes,
-        
-        // Payment info (customer view - limited)
-        payment: payment ? {
-          paymentId: payment.paymentId,
-          amount: payment.amount,
-          paymentMethod: payment.paymentMethod,
-          status: payment.status,
-          verifiedAt: payment.verifiedAt,
-          verificationNote: payment.status === 'rejected' ? payment.verificationNote : null
-        } : null,
-        
-        // Service staff info (who confirmed)
-        confirmedBy: reservation.confirmedBy ? reservation.confirmedBy.name : null,
-        
-        // Timestamps
-        createdAt: reservation.createdAt,
-        confirmedAt: reservation.confirmedAt,
-        cancelledAt: reservation.cancelledAt,
-        cancelReason: reservation.cancelReason,
-        cancellationReason: reservation.cancellationReason
-      };
-    });
-
-    // Statistics untuk customer
-    const customerStats = await getCustomerStats(customerObjectId);
-
-    res.status(200).json({
-      success: true,
-      message: "Customer reservation history retrieved successfully",
-      data: {
-        reservations: formattedHistory,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(totalReservations / limit),
-          totalItems: totalReservations,
-          itemsPerPage: parseInt(limit),
-          hasNextPage: page * limit < totalReservations,
-          hasPrevPage: page > 1
-        },
-        statistics: customerStats,
-        filters: {
-          status: status || 'all',
-          dateRange: { startDate, endDate }
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('Get customer reservation history error:', error);
-    res.status(500).json({
-      success: false,
-      message: "Error retrieving customer reservation history",
-      error: error.message
-    });
-  }
-};
-
-// Cashier: Melihat riwayat reservasi yang DIA terima/handle
+// Cashier: Melihat riwayat reservasi yang DIA verifikasi paymentnya
 const getCashierReservationHistory = async (req, res) => {
   try {
     const cashierId = req.user.userId || req.user.id;
@@ -526,11 +207,9 @@ const getCashierReservationHistory = async (req, res) => {
       page = 1, 
       limit = 10, 
       status,
-      action, // 'verified' atau 'rejected' atau 'all'
+      action,
       startDate,
       endDate,
-      customerId,
-      barberId,
       sortBy = 'verifiedAt',
       sortOrder = 'desc'
     } = req.query;
@@ -550,14 +229,15 @@ const getCashierReservationHistory = async (req, res) => {
       cashierObjectId = cashierId;
     }
 
-    // Build payment query - hanya payment yang di-verify oleh cashier ini
+    // ✅ Build payment query - hanya payment yang di-verify oleh cashier ini
     let paymentQuery = {
-      verifiedBy: cashierObjectId
+      verifiedBy: cashierObjectId,
+      status: { $in: ['verified', 'rejected'] } // ✅ Only processed payments
     };
     
     // Filter by verification action
     if (action && action !== 'all') {
-      paymentQuery.status = action; // 'verified' atau 'rejected'
+      paymentQuery.status = action;
     }
     
     // Filter by verification date
@@ -581,112 +261,116 @@ const getCashierReservationHistory = async (req, res) => {
       .populate({
         path: 'reservationId',
         populate: [
-          { path: 'customer', select: 'name email phone userId' },
+          { path: 'createdBy', select: 'name email phone userId' },
           { path: 'package', select: 'name price description services' },
           { path: 'barber', select: 'name barberId specialties' },
           { path: 'schedule', select: 'date timeSlot scheduled_time' }
         ]
       })
+      .populate('verifiedBy', 'name role userId')
       .sort(sort)
       .skip(skip)
       .limit(parseInt(limit));
 
-    // Filter out payments where reservation doesn't exist
-    const validPayments = payments.filter(payment => payment.reservationId);
+    // ✅ Filter out payments where reservation doesn't exist
+    let validPayments = payments.filter(payment => payment.reservationId);
 
     // Additional filter by reservation status if needed
-    let filteredPayments = validPayments;
     if (status && status !== 'all') {
-      filteredPayments = validPayments.filter(payment => 
-        payment.reservationId.status === status
-      );
-    }
-
-    // Additional filter by customer if needed
-    if (customerId) {
-      filteredPayments = filteredPayments.filter(payment => 
-        payment.reservationId.customer._id.toString() === customerId
-      );
-    }
-
-    // Additional filter by barber if needed
-    if (barberId) {
-      filteredPayments = filteredPayments.filter(payment => 
-        payment.reservationId.barber._id.toString() === barberId
+      validPayments = validPayments.filter(payment => 
+        payment.reservationId && payment.reservationId.status === status
       );
     }
 
     const totalPayments = await Payment.countDocuments(paymentQuery);
 
-    // Format response for cashier view
-    const formattedHistory = filteredPayments.map(payment => ({
-      _id: payment._id,
-      paymentId: payment.paymentId,
-      
-      // Verification action taken by cashier
-      verificationAction: payment.status, // 'verified' atau 'rejected'
-      verificationNote: payment.verificationNote,
-      verifiedAt: payment.verifiedAt,
-      actionTaken: payment.status === 'verified' ? 'Approved Payment' : 'Rejected Payment',
-      
-      // Payment details
-      amount: payment.amount,
-      paymentMethod: payment.paymentMethod,
-      bankAccount: payment.bankAccount,
-      eWallet: payment.eWallet,
-      proofOfPayment: payment.proofOfPayment ? {
-        url: payment.proofOfPayment.url,
-        originalName: payment.proofOfPayment.originalName
-      } : null,
-      
-      // Reservation info
-      reservation: {
-        _id: payment.reservationId._id,
-        reservationId: payment.reservationId.reservationId,
-        status: payment.reservationId.status,
-        finalStatus: getFinalReservationStatus(payment.reservationId.status, payment.status), // ✅ Use function defined below
-        totalPrice: payment.reservationId.totalPrice,
-        notes: payment.reservationId.notes,
-        
-        // Customer info
-        customer: {
-          _id: payment.reservationId.customer._id,
-          name: payment.reservationId.customer.name,
-          email: payment.reservationId.customer.email,
-          phone: payment.reservationId.customer.phone,
-          userId: payment.reservationId.customer.userId
-        },
-        customerName: payment.reservationId.customerName,
-        customerPhone: payment.reservationId.customerPhone,
-        customerEmail: payment.reservationId.customerEmail,
-        
-        // Service details
-        package: {
-          _id: payment.reservationId.package._id,
-          name: payment.reservationId.package.name,
-          price: payment.reservationId.package.price,
-          description: payment.reservationId.package.description,
-          services: payment.reservationId.package.services
-        },
-        barber: {
-          _id: payment.reservationId.barber._id,
-          name: payment.reservationId.barber.name,
-          barberId: payment.reservationId.barber.barberId,
-          specialties: payment.reservationId.barber.specialties
-        },
-        schedule: {
-          _id: payment.reservationId.schedule._id,
-          date: payment.reservationId.schedule.date,
-          timeSlot: payment.reservationId.schedule.timeSlot,
-          scheduled_time: payment.reservationId.schedule.scheduled_time
-        },
-        
-        // Important timestamps
-        createdAt: payment.reservationId.createdAt,
-        confirmedAt: payment.reservationId.confirmedAt,
-        cancelledAt: payment.reservationId.cancelledAt
+    // ✅ Format response for cashier - reservations they handled (with null checks)
+    const formattedHistory = validPayments.map(payment => {
+      // ✅ Add null check for reservationId
+      if (!payment.reservationId) {
+        return null; // Skip this payment
       }
-    }));
+
+      return {
+        _id: payment._id,
+        paymentId: payment.paymentId,
+        
+        // Verification action taken by cashier
+        verificationAction: payment.status,
+        verificationNote: payment.verificationNote,
+        verifiedAt: payment.verifiedAt,
+        actionTaken: payment.status === 'verified' ? 'Approved Payment' : 'Rejected Payment',
+        
+        // Payment details
+        amount: payment.amount,
+        paymentMethod: payment.paymentMethod,
+        bankAccount: payment.bankAccount,
+        eWallet: payment.eWallet,
+        proofOfPayment: payment.proofOfPayment ? {
+          url: payment.proofOfPayment.url,
+          originalName: payment.proofOfPayment.originalName
+        } : null,
+        
+        // ✅ Verified by info
+        verifiedBy: payment.verifiedBy ? {
+          _id: payment.verifiedBy._id,
+          name: payment.verifiedBy.name,
+          role: payment.verifiedBy.role,
+          userId: payment.verifiedBy.userId
+        } : null,
+        
+        // ✅ Reservation info with null checks
+        reservation: {
+          _id: payment.reservationId._id,
+          reservationId: payment.reservationId.reservationId,
+          status: payment.reservationId.status,
+          finalStatus: getFinalReservationStatus(payment.reservationId.status, payment.status),
+          totalPrice: payment.reservationId.totalPrice,
+          notes: payment.reservationId.notes,
+          
+          // Customer info (manual data from reservation)
+          customerName: payment.reservationId.customerName,
+          customerPhone: payment.reservationId.customerPhone,
+          customerEmail: payment.reservationId.customerEmail,
+          
+          // ✅ Who created this reservation (with null check)
+          createdBy: payment.reservationId.createdBy ? {
+            _id: payment.reservationId.createdBy._id,
+            name: payment.reservationId.createdBy.name,
+            email: payment.reservationId.createdBy.email,
+            phone: payment.reservationId.createdBy.phone,
+            userId: payment.reservationId.createdBy.userId
+          } : null,
+          
+          // ✅ Service details (with null checks)
+          package: payment.reservationId.package ? {
+            _id: payment.reservationId.package._id,
+            name: payment.reservationId.package.name,
+            price: payment.reservationId.package.price,
+            description: payment.reservationId.package.description,
+            services: payment.reservationId.package.services
+          } : null,
+          barber: payment.reservationId.barber ? {
+            _id: payment.reservationId.barber._id,
+            name: payment.reservationId.barber.name,
+            barberId: payment.reservationId.barber.barberId,
+            specialties: payment.reservationId.barber.specialties
+          } : null,
+          schedule: payment.reservationId.schedule ? {
+            _id: payment.reservationId.schedule._id,
+            date: payment.reservationId.schedule.date,
+            timeSlot: payment.reservationId.schedule.timeSlot,
+            scheduled_time: payment.reservationId.schedule.scheduled_time
+          } : null,
+          
+          // Important timestamps
+          createdAt: payment.reservationId.createdAt,
+          confirmedAt: payment.reservationId.confirmedAt,
+          completedAt: payment.reservationId.completedAt,
+          cancelledAt: payment.reservationId.cancelledAt
+        }
+      };
+    }).filter(item => item !== null); // ✅ Remove null items
 
     // Statistics for cashier performance
     const cashierStats = await getCashierStats(cashierObjectId);
@@ -708,9 +392,7 @@ const getCashierReservationHistory = async (req, res) => {
         filters: {
           status: status || 'all',
           action: action || 'all',
-          dateRange: { startDate, endDate },
-          customerId,
-          barberId
+          dateRange: { startDate, endDate }
         }
       }
     });
@@ -725,9 +407,244 @@ const getCashierReservationHistory = async (req, res) => {
   }
 };
 
-// ✅ HELPER FUNCTIONS - Add these at the end of file
+// Customer: Melihat riwayat reservasi (completed & cancelled only)
+const getCustomerReservationHistory = async (req, res) => {
+  try {
+    const userIdentifier = req.user.userId || req.user.id;
+    const { 
+      page = 1, 
+      limit = 10, 
+      status,
+      startDate,
+      endDate,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
 
-// Helper function untuk cashier stats
+    // ✅ Find user first to get MongoDB _id (sama seperti getUserReservations)
+    let user;
+    if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
+      user = await User.findOne({ userId: userIdentifier }).select('_id name email');
+    } else {
+      user = await User.findById(userIdentifier).select('_id name email');
+    }
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    // ✅ Build query - FILTER HANYA completed dan cancelled
+    let query = {
+      createdBy: user._id, 
+      status: { $in: ['completed', 'cancelled'] } // ✅ HARD FILTER - tidak bisa diubah
+    };
+    
+    // Optional: Allow further filtering if status query param provided
+    if (status && ['completed', 'cancelled'].includes(status)) {
+      query.status = status; // Override dengan status spesifik jika valid
+    }
+    
+    // Date range filter
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) {
+        query.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        const endDateObj = new Date(endDate);
+        endDateObj.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = endDateObj;
+      }
+    }
+
+    const skip = (page - 1) * limit;
+    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
+
+    // ✅ Query reservations - sama persis seperti getUserReservations tapi dengan filter history
+    const reservations = await Reservation.find(query)
+      .populate({
+        path: 'createdBy',
+        select: 'name email userId'
+      })
+      .populate({
+        path: 'package',
+        select: 'name price description duration'
+      })
+      .populate({
+        path: 'barber',
+        select: 'name email phone specialization'
+      })
+      .populate({
+        path: 'schedule',
+        select: 'scheduled_time timeSlot date'
+      })
+      .populate({
+        path: 'confirmedBy',
+        select: 'name email'
+      })
+      .sort(sort)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    // Get payment data for these reservations (optional untuk history)
+    const reservationIds = reservations.map(r => r._id);
+    const payments = await Payment.find({ reservationId: { $in: reservationIds } })
+      .populate('verifiedBy', 'name role userId')
+      .select('reservationId paymentId amount paymentMethod status verifiedAt verificationNote');
+
+    // Map payments to reservations
+    const paymentMap = {};
+    payments.forEach(payment => {
+      paymentMap[payment.reservationId.toString()] = payment;
+    });
+
+    const totalReservations = await Reservation.countDocuments(query);
+
+    // ✅ Format response - sama seperti getUserReservations format
+    const formattedHistory = reservations.map(reservation => {
+      const payment = paymentMap[reservation._id.toString()];
+      
+      return {
+        _id: reservation._id,
+        reservationId: reservation.reservationId,
+        status: reservation.status,
+        customerName: reservation.customerName,
+        customerPhone: reservation.customerPhone,
+        customerEmail: reservation.customerEmail,
+        notes: reservation.notes,
+        totalPrice: reservation.totalPrice,
+        
+        // Related data
+        createdBy: reservation.createdBy,
+        package: reservation.package,
+        barber: reservation.barber,
+        schedule: reservation.schedule,
+        confirmedBy: reservation.confirmedBy,
+        
+        // Payment info (limited untuk customer)
+        payment: payment ? {
+          paymentId: payment.paymentId,
+          amount: payment.amount,
+          paymentMethod: payment.paymentMethod,
+          status: payment.status,
+          verifiedAt: payment.verifiedAt,
+          verificationNote: payment.status === 'rejected' ? payment.verificationNote : null
+        } : null,
+        
+        // Status descriptions
+        finalStatus: getFinalStatus(reservation.status, payment?.status),
+        statusDescription: getStatusDescription(reservation.status, payment?.status),
+        
+        // Timestamps
+        createdAt: reservation.createdAt,
+        updatedAt: reservation.updatedAt,
+        confirmedAt: reservation.confirmedAt,
+        completedAt: reservation.completedAt,
+        cancelledAt: reservation.cancelledAt,
+        cancellationReason: reservation.cancellationReason
+      };
+    });
+
+    // ✅ Summary dengan breakdown status (hanya untuk completed dan cancelled)
+    const completedCount = formattedHistory.filter(r => r.status === 'completed').length;
+    const cancelledCount = formattedHistory.filter(r => r.status === 'cancelled').length;
+
+    res.status(200).json({
+      success: true,
+      message: "Customer reservation history retrieved successfully",
+      data: {
+        reservations: formattedHistory,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalReservations / limit),
+          totalItems: totalReservations,
+          itemsPerPage: parseInt(limit),
+          hasNextPage: page * limit < totalReservations,
+          hasPrevPage: page > 1
+        },
+        summary: {
+          total: formattedHistory.length,
+          completed: completedCount,
+          cancelled: cancelledCount,
+          statusFilter: ['completed', 'cancelled']
+        },
+        filters: {
+          status: status || 'completed,cancelled',
+          statusFilter: ['completed', 'cancelled'],
+          dateRange: { startDate, endDate }
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error("Error retrieving customer reservation history:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error retrieving customer reservation history",
+      error: error.message
+    });
+  }
+};
+
+// ✅ HELPER FUNCTIONS (unchanged)
+const getAdminStats = async (baseQuery = {}) => {
+  const today = new Date();
+  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const startOfYear = new Date(today.getFullYear(), 0, 1);
+
+  try {
+    const [
+      totalReservations,
+      pendingReservations,
+      confirmedReservations,
+      cancelledReservations,
+      completedReservations,
+      monthlyReservations,
+      yearlyReservations,
+      totalRevenue,
+      monthlyRevenue
+    ] = await Promise.all([
+      Reservation.countDocuments(baseQuery),
+      Reservation.countDocuments({ ...baseQuery, status: 'pending' }),
+      Reservation.countDocuments({ ...baseQuery, status: 'confirmed' }),
+      Reservation.countDocuments({ ...baseQuery, status: 'cancelled' }),
+      Reservation.countDocuments({ ...baseQuery, status: 'completed' }),
+      Reservation.countDocuments({ ...baseQuery, createdAt: { $gte: startOfMonth } }),
+      Reservation.countDocuments({ ...baseQuery, createdAt: { $gte: startOfYear } }),
+      Reservation.aggregate([
+        { $match: { ...baseQuery, status: 'completed' } },
+        { $group: { _id: null, total: { $sum: '$totalPrice' } } }
+      ]),
+      Reservation.aggregate([
+        { $match: { ...baseQuery, status: 'completed', createdAt: { $gte: startOfMonth } } },
+        { $group: { _id: null, total: { $sum: '$totalPrice' } } }
+      ])
+    ]);
+
+    return {
+      total: totalReservations,
+      pending: pendingReservations,
+      confirmed: confirmedReservations,
+      cancelled: cancelledReservations,
+      completed: completedReservations,
+      monthlyCount: monthlyReservations,
+      yearlyCount: yearlyReservations,
+      totalRevenue: totalRevenue[0]?.total || 0,
+      monthlyRevenue: monthlyRevenue[0]?.total || 0,
+      completionRate: totalReservations > 0 ? ((completedReservations / totalReservations) * 100).toFixed(2) : 0
+    };
+  } catch (error) {
+    console.error('Error getting admin stats:', error);
+    return {
+      total: 0, pending: 0, confirmed: 0, cancelled: 0, completed: 0,
+      monthlyCount: 0, yearlyCount: 0, totalRevenue: 0, monthlyRevenue: 0, completionRate: 0
+    };
+  }
+};
+
 const getCashierStats = async (cashierId) => {
   const today = new Date();
   const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -801,7 +718,6 @@ const getCashierStats = async (cashierId) => {
   }
 };
 
-// ✅ Helper function untuk final status - ADD THIS FUNCTION
 const getFinalReservationStatus = (reservationStatus, paymentStatus) => {
   if (reservationStatus === 'completed') return 'Service Completed';
   if (reservationStatus === 'confirmed' && paymentStatus === 'verified') return 'Ready for Service';
@@ -814,136 +730,6 @@ const getFinalReservationStatus = (reservationStatus, paymentStatus) => {
   return reservationStatus;
 };
 
-// Helper functions untuk admin statistics (jika belum ada)
-const getAdminStats = async (baseQuery = {}) => {
-  const today = new Date();
-  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-  const startOfYear = new Date(today.getFullYear(), 0, 1);
-
-  try {
-    const [
-      totalReservations,
-      pendingReservations,
-      confirmedReservations,
-      cancelledReservations,
-      completedReservations,
-      monthlyReservations,
-      yearlyReservations,
-      totalRevenue,
-      monthlyRevenue
-    ] = await Promise.all([
-      Reservation.countDocuments(baseQuery),
-      Reservation.countDocuments({ ...baseQuery, status: 'pending' }),
-      Reservation.countDocuments({ ...baseQuery, status: 'confirmed' }),
-      Reservation.countDocuments({ ...baseQuery, status: 'cancelled' }),
-      Reservation.countDocuments({ ...baseQuery, status: 'completed' }),
-      Reservation.countDocuments({ ...baseQuery, createdAt: { $gte: startOfMonth } }),
-      Reservation.countDocuments({ ...baseQuery, createdAt: { $gte: startOfYear } }),
-      Reservation.aggregate([
-        { $match: { ...baseQuery, status: 'completed' } },
-        { $group: { _id: null, total: { $sum: '$totalPrice' } } }
-      ]),
-      Reservation.aggregate([
-        { $match: { ...baseQuery, status: 'completed', createdAt: { $gte: startOfMonth } } },
-        { $group: { _id: null, total: { $sum: '$totalPrice' } } }
-      ])
-    ]);
-
-    return {
-      total: totalReservations,
-      pending: pendingReservations,
-      confirmed: confirmedReservations,
-      cancelled: cancelledReservations,
-      completed: completedReservations,
-      monthlyCount: monthlyReservations,
-      yearlyCount: yearlyReservations,
-      totalRevenue: totalRevenue[0]?.total || 0,
-      monthlyRevenue: monthlyRevenue[0]?.total || 0,
-      completionRate: totalReservations > 0 ? ((completedReservations / totalReservations) * 100).toFixed(2) : 0
-    };
-  } catch (error) {
-    console.error('Error getting admin stats:', error);
-    return {
-      total: 0, pending: 0, confirmed: 0, cancelled: 0, completed: 0,
-      monthlyCount: 0, yearlyCount: 0, totalRevenue: 0, monthlyRevenue: 0, completionRate: 0
-    };
-  }
-};
-
-const getAdminVerificationStats = async (adminId) => {
-  const today = new Date();
-  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-
-  const [
-    totalVerifications,
-    totalApprovals,
-    totalRejections,
-    monthlyVerifications,
-    monthlyApprovals,
-    monthlyRejections
-  ] = await Promise.all([
-    Payment.countDocuments({ verifiedBy: adminId }),
-    Payment.countDocuments({ verifiedBy: adminId, status: 'verified' }),
-    Payment.countDocuments({ verifiedBy: adminId, status: 'rejected' }),
-    Payment.countDocuments({ verifiedBy: adminId, verifiedAt: { $gte: startOfMonth } }),
-    Payment.countDocuments({ verifiedBy: adminId, status: 'verified', verifiedAt: { $gte: startOfMonth } }),
-    Payment.countDocuments({ verifiedBy: adminId, status: 'rejected', verifiedAt: { $gte: startOfMonth } })
-  ]);
-
-  return {
-    totalVerifications,
-    totalApprovals,
-    totalRejections,
-    monthlyVerifications,
-    monthlyApprovals,
-    monthlyRejections,
-    approvalRate: totalVerifications > 0 ? ((totalApprovals / totalVerifications) * 100).toFixed(2) : 0,
-    rejectionRate: totalVerifications > 0 ? ((totalRejections / totalVerifications) * 100).toFixed(2) : 0
-  };
-};
-
-const getCustomerStats = async (customerId) => {
-  try {
-    const [
-      totalReservations,
-      pendingReservations,
-      confirmedReservations,
-      completedReservations,
-      cancelledReservations,
-      totalSpent
-    ] = await Promise.all([
-      Reservation.countDocuments({ customer: customerId }),
-      Reservation.countDocuments({ customer: customerId, status: 'pending' }),
-      Reservation.countDocuments({ customer: customerId, status: 'confirmed' }),
-      Reservation.countDocuments({ customer: customerId, status: 'completed' }),
-      Reservation.countDocuments({ customer: customerId, status: 'cancelled' }),
-      Reservation.aggregate([
-        { $match: { customer: customerId, status: 'completed' } },
-        { $group: { _id: null, total: { $sum: '$totalPrice' } } }
-      ])
-    ]);
-
-    return {
-      totalReservations,
-      pendingReservations,
-      confirmedReservations,
-      completedReservations,
-      cancelledReservations,
-      totalSpent: totalSpent[0]?.total || 0,
-      loyaltyLevel: getLoyaltyLevel(completedReservations),
-      completionRate: totalReservations > 0 ? ((completedReservations / totalReservations) * 100).toFixed(2) : 0
-    };
-  } catch (error) {
-    console.error('Error getting customer stats:', error);
-    return {
-      totalReservations: 0, pendingReservations: 0, confirmedReservations: 0,
-      completedReservations: 0, cancelledReservations: 0, totalSpent: 0,
-      loyaltyLevel: 'Bronze', completionRate: 0
-    };
-  }
-};
-
-// Helper functions untuk status
 const getFinalStatus = (reservationStatus, paymentStatus) => {
   if (reservationStatus === 'completed') return 'Completed';
   if (reservationStatus === 'cancelled') return 'Cancelled';
@@ -964,16 +750,8 @@ const getStatusDescription = (reservationStatus, paymentStatus) => {
   return 'Status unknown';
 };
 
-const getLoyaltyLevel = (completedCount) => {
-  if (completedCount >= 20) return 'VIP';
-  if (completedCount >= 10) return 'Gold';
-  if (completedCount >= 5) return 'Silver';
-  return 'Bronze';
-};
-
 module.exports = {
   getAllReservationHistory,
-  getAdminVerificationHistory,
-  getCustomerReservationHistory,
-  getCashierReservationHistory
+  getCashierReservationHistory,
+  getCustomerReservationHistory
 };

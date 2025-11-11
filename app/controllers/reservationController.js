@@ -316,7 +316,7 @@ const getReservationById = async (req, res) => {
   }
 };
 
-// Get user's reservations
+// Get user's reservations (hanya pending dan confirmed)
 const getUserReservations = async (req, res) => {
   try {
     const userIdentifier = req.user.userId || req.user.id;
@@ -336,17 +336,11 @@ const getUserReservations = async (req, res) => {
       });
     }
 
-    // ✅ Query reservations - include both customer and createdBy
+    // ✅ Query reservations - filter hanya status pending dan confirmed
     const reservations = await Reservation.find({
-      $or: [
-        { customer: user._id }, // Reservations where user is the customer (self booking)
-        { createdBy: user._id }  // Reservations created by user (manual booking)
-      ]
+      createdBy: user._id,
+      status: { $in: ['pending', 'confirmed',] } // ✅ FILTER STATUS
     })
-      .populate({
-        path: 'customer',
-        select: 'name email phone userId'
-      })
       .populate({
         path: 'createdBy',
         select: 'name email userId'
@@ -363,46 +357,100 @@ const getUserReservations = async (req, res) => {
         path: 'schedule',
         select: 'scheduled_time timeSlot date'
       })
+      .populate({
+        path: 'confirmedBy',
+        select: 'name email'
+      })
       .sort({ createdAt: -1 });
 
-    // ✅ Format response with booking type info
-    const formattedReservations = reservations.map(reservation => ({
-      _id: reservation._id,
-      reservationId: reservation.reservationId,
-      status: reservation.status,
-      customerName: reservation.customerName,
-      customerPhone: reservation.customerPhone,
-      customerEmail: reservation.customerEmail,
-      notes: reservation.notes,
-      totalPrice: reservation.totalPrice,
+    // ✅ Get payment data for these reservations
+    const reservationIds = reservations.map(r => r._id);
+    const { Payment } = require('../models/Payment');
+    const payments = await Payment.find({ reservationId: { $in: reservationIds } })
+      .populate('verifiedBy', 'name role userId')
+      .select('reservationId paymentId amount paymentMethod status verifiedAt verificationNote uploadedAt rejectedAt');
+
+    // ✅ Map payments to reservations
+    const paymentMap = {};
+    payments.forEach(payment => {
+      paymentMap[payment.reservationId.toString()] = payment;
+    });
+
+    // ✅ Format response with payment info
+    const formattedReservations = reservations.map(reservation => {
+      const payment = paymentMap[reservation._id.toString()];
       
-      // Booking type info
-      bookingType: reservation.customer ? "self" : "manual",
-      isSelfBooking: reservation.customer && reservation.customer._id.toString() === user._id.toString(),
-      isManualBooking: !reservation.customer,
-      canPayment: true, // ✅ Always true karena user yang buat reservation
-      
-      // Related data
-      customer: reservation.customer,
-      createdBy: reservation.createdBy,
-      package: reservation.package,
-      barber: reservation.barber,
-      schedule: reservation.schedule,
-      
-      // Timestamps
-      createdAt: reservation.createdAt,
-      updatedAt: reservation.updatedAt
-    }));
+      return {
+        _id: reservation._id,
+        reservationId: reservation.reservationId,
+        status: reservation.status,
+        customerName: reservation.customerName,
+        customerPhone: reservation.customerPhone,
+        customerEmail: reservation.customerEmail,
+        notes: reservation.notes,
+        totalPrice: reservation.totalPrice,
+        
+        // Related data
+        createdBy: reservation.createdBy,
+        package: reservation.package,
+        barber: reservation.barber,
+        schedule: reservation.schedule,
+        confirmedBy: reservation.confirmedBy,
+        
+        // ✅ Payment information (NEW)
+        payment: payment ? {
+          paymentId: payment.paymentId,
+          amount: payment.amount,
+          paymentMethod: payment.paymentMethod,
+          status: payment.status, // ✅ pending, verified, rejected
+          verificationNote: payment.verificationNote, // ✅ Notes from cashier
+          uploadedAt: payment.uploadedAt,
+          verifiedAt: payment.verifiedAt,
+          rejectedAt: payment.rejectedAt,
+          verifiedBy: payment.verifiedBy ? {
+            name: payment.verifiedBy.name,
+            role: payment.verifiedBy.role,
+            userId: payment.verifiedBy.userId
+          } : null
+        } : null,
+        
+        // ✅ Overall status descriptions (NEW)
+        finalStatus: getFinalStatus(reservation.status, payment?.status),
+        statusDescription: getStatusDescription(reservation.status, payment?.status),
+        canUploadPayment: reservation.status === 'pending' && (!payment || payment.status === 'rejected'),
+        
+        // Timestamps
+        createdAt: reservation.createdAt,
+        updatedAt: reservation.updatedAt,
+        confirmedAt: reservation.confirmedAt
+      };
+    });
+
+    // ✅ Summary dengan breakdown status dan payment
+    const pendingCount = formattedReservations.filter(r => r.status === 'pending').length;
+    const confirmedCount = formattedReservations.filter(r => r.status === 'confirmed').length;
+    const pendingPaymentCount = formattedReservations.filter(r => r.payment?.status === 'pending').length;
+    const verifiedPaymentCount = formattedReservations.filter(r => r.payment?.status === 'verified').length;
+    const rejectedPaymentCount = formattedReservations.filter(r => r.payment?.status === 'rejected').length;
+    const noPaymentCount = formattedReservations.filter(r => !r.payment).length;
 
     res.status(200).json({
       success: true,
       message: "User reservations retrieved successfully",
       data: formattedReservations,
-      count: formattedReservations.length,
       summary: {
-        selfBookings: formattedReservations.filter(r => r.isSelfBooking).length,
-        manualBookings: formattedReservations.filter(r => r.isManualBooking).length,
-        total: formattedReservations.length
+        total: formattedReservations.length,
+        reservationStatus: {
+          pending: pendingCount,
+          confirmed: confirmedCount
+        },
+        paymentStatus: {
+          verified: verifiedPaymentCount,
+          pending: pendingPaymentCount,
+          rejected: rejectedPaymentCount,
+          notUploaded: noPaymentCount
+        },
+        statusFilter: ['pending', 'confirmed']
       }
     });
 
@@ -658,6 +706,39 @@ const deleteReservation = async (req, res) => {
   }
 };
 
+// =====================================================
+// HELPER FUNCTIONS
+// =====================================================
+
+// Helper function untuk final status
+const getFinalStatus = (reservationStatus, paymentStatus) => {
+  if (reservationStatus === 'confirmed' && paymentStatus === 'verified') return 'Ready for Service';
+  if (reservationStatus === 'confirmed') return 'Confirmed';
+  if (reservationStatus === 'pending' && paymentStatus === 'verified') return 'Payment Approved';
+  if (reservationStatus === 'pending' && paymentStatus === 'rejected') return 'Payment Rejected';
+  if (reservationStatus === 'pending' && paymentStatus === 'pending') return 'Payment Under Review';
+  if (reservationStatus === 'pending' && !paymentStatus) return 'Awaiting Payment';
+  return reservationStatus || 'Unknown';
+};
+
+// Helper function untuk status description
+const getStatusDescription = (reservationStatus, paymentStatus) => {
+  if (reservationStatus === 'confirmed' && paymentStatus === 'verified') 
+    return 'Your reservation is confirmed and ready for service';
+  if (reservationStatus === 'confirmed') 
+    return 'Your reservation is confirmed';
+  if (reservationStatus === 'pending' && paymentStatus === 'verified') 
+    return 'Payment approved, waiting for admin confirmation';
+  if (reservationStatus === 'pending' && paymentStatus === 'rejected') 
+    return 'Payment was rejected, please upload new payment proof';
+  if (reservationStatus === 'pending' && paymentStatus === 'pending') 
+    return 'Payment uploaded, waiting for verification';
+  if (reservationStatus === 'pending' && !paymentStatus) 
+    return 'Please upload payment proof to continue';
+  return 'Status unknown';
+};
+
+// ✅ UPDATE MODULE.EXPORTS - TAMBAHKAN HELPER FUNCTIONS
 module.exports = {
   getAvailablePackages,
   getAvailableBarbers,
@@ -669,5 +750,7 @@ module.exports = {
   getConfirmedReservations,
   updateReservationStatus,
   cancelReservation,
-  deleteReservation
+  deleteReservation,
+  getFinalStatus, // ✅ Export helper functions
+  getStatusDescription
 };
