@@ -1,6 +1,8 @@
-const Barber = require("../models/Barber");
-const User = require("../models/User");
-const Reservation = require("../models/Reservation");
+const Reservation = require('../models/Reservation');
+const { Payment } = require('../models/Payment');
+const User = require('../models/User');
+const Package = require('../models/Package');        // ✅
+const Barber = require('../models/Barber');          // ✅
 const mongoose = require("mongoose");
 
 const getDashboardStats = async (req, res) => {

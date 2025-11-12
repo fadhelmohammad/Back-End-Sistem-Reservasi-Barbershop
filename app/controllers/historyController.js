@@ -1,6 +1,9 @@
 const Reservation = require('../models/Reservation');
 const { Payment } = require('../models/Payment');
 const User = require('../models/User');
+const Package = require('../models/Package'); // ✅ TAMBAH INI
+const Barber = require('../models/Barber');   // ✅ TAMBAH INI
+const Schedule = require('../models/Schedule'); // ✅ TAMBAH INI
 
 // Admin: Melihat seluruh riwayat reservasi dari semua customer
 const getAllReservationHistory = async (req, res) => {
@@ -41,6 +44,8 @@ const getAllReservationHistory = async (req, res) => {
     const skip = (page - 1) * limit;
     const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
 
+    console.log('🔍 DEBUG - Query:', query); // Debug log
+
     const reservations = await Reservation.find(query)
       .populate('package', 'name price description services duration')
       .populate('barber', 'name barberId specialties')
@@ -51,9 +56,14 @@ const getAllReservationHistory = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
+    console.log('🔍 DEBUG - Found reservations:', reservations.length); // Debug log
+
     // Get payment data for these reservations
     const reservationIds = reservations.map(r => r._id);
-    const payments = await Payment.find({ reservationId: { $in: reservationIds } })
+    const payments = await Payment.find({ 
+      reservationId: { $in: reservationIds },
+      status: { $in: ['pending', 'verified', 'rejected'] }
+    })
       .populate('verifiedBy', 'name role userId')
       .select('reservationId paymentId amount paymentMethod status verifiedAt verificationNote');
 
