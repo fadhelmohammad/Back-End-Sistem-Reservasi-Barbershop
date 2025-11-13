@@ -1,15 +1,27 @@
 const Reservation = require('../models/Reservation');
 const { Payment } = require('../models/Payment');
 const User = require('../models/User');
-const Package = require('../models/Package');
-const Barber = require('../models/Barber');
-const Schedule = require('../models/Schedule');
+
+// ✅ DEFENSIVE MODEL IMPORTS - Check if already registered
+const mongoose = require('mongoose');
+
+const getModel = (modelName, modelPath) => {
+  try {
+    return mongoose.model(modelName);
+  } catch (error) {
+    console.log(`Model ${modelName} not registered, requiring from ${modelPath}`);
+    return require(modelPath);
+  }
+};
 
 // Admin: Melihat seluruh riwayat reservasi dari semua customer
 const getAllReservationHistory = async (req, res) => {
   try {
-   
-    
+    // ✅ SAFE MODEL LOADING
+    const Package = getModel('Package', '../models/Package');
+    const Barber = getModel('Barber', '../models/Barber');
+    const Schedule = getModel('Schedule', '../models/Schedule');
+
     const { 
       page = 1, 
       limit = 10, 
@@ -77,7 +89,7 @@ const getAllReservationHistory = async (req, res) => {
 
     const totalReservations = await Reservation.countDocuments(query);
 
-    // ✅ Format response untuk admin history
+    // Format response untuk admin history
     const formattedHistory = reservations.map(reservation => {
       const payment = paymentMap[reservation._id.toString()];
       
@@ -157,7 +169,7 @@ const getAllReservationHistory = async (req, res) => {
       };
     });
 
-    // ✅ Count breakdown
+    // Count breakdown
     const completedCount = formattedHistory.filter(r => r.status === 'completed').length;
     const cancelledCount = formattedHistory.filter(r => r.status === 'cancelled').length;
 
@@ -186,6 +198,11 @@ const getAllReservationHistory = async (req, res) => {
 // Cashier: Melihat riwayat reservasi yang DIA verifikasi paymentnya
 const getCashierReservationHistory = async (req, res) => {
   try {
+    // ✅ SAFE MODEL LOADING
+    const Package = getModel('Package', '../models/Package');
+    const Barber = getModel('Barber', '../models/Barber');
+    const Schedule = getModel('Schedule', '../models/Schedule');
+
     const userIdentifier = req.user.userId || req.user.id;
     const { 
       page = 1, 
@@ -212,7 +229,7 @@ const getCashierReservationHistory = async (req, res) => {
       cashierObjectId = userIdentifier;
     }
 
-    // ✅ Build query untuk reservasi completed & cancelled yang payment-nya diverifikasi oleh cashier ini
+    // Build query untuk reservasi completed & cancelled yang payment-nya diverifikasi oleh cashier ini
     let query = {
       status: { $in: ['completed', 'cancelled'] }
     };
@@ -235,7 +252,7 @@ const getCashierReservationHistory = async (req, res) => {
       }
     }
 
-    // ✅ Get payments verified by this cashier
+    // Get payments verified by this cashier
     const paymentsVerifiedByCashier = await Payment.find({
       verifiedBy: cashierObjectId,
       status: 'verified'
@@ -243,7 +260,7 @@ const getCashierReservationHistory = async (req, res) => {
 
     const reservationIdsVerifiedByCashier = paymentsVerifiedByCashier.map(p => p.reservationId);
 
-    // ✅ Add filter untuk reservasi yang payment-nya diverifikasi oleh cashier ini
+    // Add filter untuk reservasi yang payment-nya diverifikasi oleh cashier ini
     query._id = { $in: reservationIdsVerifiedByCashier };
 
     const skip = (page - 1) * limit;
@@ -273,7 +290,7 @@ const getCashierReservationHistory = async (req, res) => {
 
     const totalReservations = await Reservation.countDocuments(query);
 
-    // ✅ Format response untuk cashier history
+    // Format response untuk cashier history
     const formattedHistory = reservations.map(reservation => {
       const payment = paymentMap[reservation._id.toString()];
       
@@ -353,7 +370,7 @@ const getCashierReservationHistory = async (req, res) => {
       };
     });
 
-    // ✅ Count breakdown
+    // Count breakdown
     const completedCount = formattedHistory.filter(r => r.status === 'completed').length;
     const cancelledCount = formattedHistory.filter(r => r.status === 'cancelled').length;
 
@@ -382,6 +399,11 @@ const getCashierReservationHistory = async (req, res) => {
 // Customer: Melihat riwayat reservasi (completed & cancelled only)
 const getCustomerReservationHistory = async (req, res) => {
   try {
+    // ✅ SAFE MODEL LOADING
+    const Package = getModel('Package', '../models/Package');
+    const Barber = getModel('Barber', '../models/Barber');
+    const Schedule = getModel('Schedule', '../models/Schedule');
+
     const userIdentifier = req.user.userId || req.user.id;
     const { 
       page = 1, 
@@ -393,7 +415,7 @@ const getCustomerReservationHistory = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
-    // ✅ Find user first to get MongoDB _id (sama seperti getUserReservations)
+    // Find user first to get MongoDB _id (sama seperti getUserReservations)
     let user;
     if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
       user = await User.findOne({ userId: userIdentifier }).select('_id name email');
@@ -408,15 +430,15 @@ const getCustomerReservationHistory = async (req, res) => {
       });
     }
 
-    // ✅ Build query - FILTER HANYA completed dan cancelled
+    // Build query - FILTER HANYA completed dan cancelled
     let query = {
       createdBy: user._id, 
-      status: { $in: ['completed', 'cancelled'] } // ✅ HARD FILTER - tidak bisa diubah
+      status: { $in: ['completed', 'cancelled'] }
     };
     
     // Optional: Allow further filtering if status query param provided
     if (status && ['completed', 'cancelled'].includes(status)) {
-      query.status = status; // Override dengan status spesifik jika valid
+      query.status = status;
     }
     
     // Date range filter
@@ -435,7 +457,7 @@ const getCustomerReservationHistory = async (req, res) => {
     const skip = (page - 1) * limit;
     const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
 
-    // ✅ Query reservations - sama persis seperti getUserReservations tapi dengan filter history
+    // Query reservations - sama persis seperti getUserReservations tapi dengan filter history
     const reservations = await Reservation.find(query)
       .populate({
         path: 'createdBy',
@@ -475,7 +497,7 @@ const getCustomerReservationHistory = async (req, res) => {
 
     const totalReservations = await Reservation.countDocuments(query);
 
-    // ✅ Format response - sama seperti getUserReservations format
+    // Format response - sama seperti getUserReservations format
     const formattedHistory = reservations.map(reservation => {
       const payment = paymentMap[reservation._id.toString()];
       
@@ -520,7 +542,7 @@ const getCustomerReservationHistory = async (req, res) => {
       };
     });
 
-    // ✅ Count breakdown
+    // Count breakdown
     const completedCount = formattedHistory.filter(r => r.status === 'completed').length;
     const cancelledCount = formattedHistory.filter(r => r.status === 'cancelled').length;
 
@@ -546,7 +568,7 @@ const getCustomerReservationHistory = async (req, res) => {
   }
 };
 
-// ✅ HELPER FUNCTIONS
+// HELPER FUNCTIONS
 const getFinalReservationStatus = (reservationStatus, paymentStatus) => {
   if (reservationStatus === 'completed' && paymentStatus === 'verified') return 'Service Completed';
   if (reservationStatus === 'completed') return 'Completed';
