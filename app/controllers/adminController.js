@@ -170,12 +170,26 @@ const updateAdmin = async (req, res) => {
       });
     }
 
-    // Prevent admin from updating themselves (optional security)
-    if (admin._id.toString() === req.user._id.toString()) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot update your own admin account"
-      });
+    // Prevent admin from updating themselves (with safe check)
+    const currentUserId = req.user?.userId || req.user?.id || req.user?._id;
+    let currentUserObjectId;
+
+    if (currentUserId) {
+      if (typeof currentUserId === 'string' && currentUserId.startsWith('USR-')) {
+        const currentUser = await User.findOne({ userId: currentUserId });
+        if (currentUser) {
+          currentUserObjectId = currentUser._id;
+        }
+      } else {
+        currentUserObjectId = currentUserId;
+      }
+
+      if (currentUserObjectId && admin._id.toString() === currentUserObjectId.toString()) {
+        return res.status(400).json({
+          success: false,
+          message: "Cannot update your own admin account"
+        });
+      }
     }
 
     // Check if email already exists (exclude current admin)
@@ -274,12 +288,26 @@ const deleteAdmin = async (req, res) => {
       });
     }
 
-    // Prevent admin from deleting themselves
-    if (admin._id.toString() === req.user._id.toString()) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot delete your own admin account"
-      });
+    // Prevent admin from deleting themselves (with safe check)
+    const currentUserId = req.user?.userId || req.user?.id || req.user?._id;
+    let currentUserObjectId;
+
+    if (currentUserId) {
+      if (typeof currentUserId === 'string' && currentUserId.startsWith('USR-')) {
+        const currentUser = await User.findOne({ userId: currentUserId });
+        if (currentUser) {
+          currentUserObjectId = currentUser._id;
+        }
+      } else {
+        currentUserObjectId = currentUserId;
+      }
+
+      if (currentUserObjectId && admin._id.toString() === currentUserObjectId.toString()) {
+        return res.status(400).json({
+          success: false,
+          message: "Cannot delete your own admin account"
+        });
+      }
     }
 
     // Check if this is the last admin

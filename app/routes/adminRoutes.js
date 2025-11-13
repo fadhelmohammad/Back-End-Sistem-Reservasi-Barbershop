@@ -26,7 +26,7 @@ router.get("/:id", authMiddleware, checkRole('ADMIN'), getAdminById);
 router.post("/", authMiddleware, checkRole('ADMIN'), createAdmin);
 
 // Update admin (Admin only)
-router.put("/:id", authMiddleware, checkRole('ADMIN'), updateAdmin);
+router.patch("/:id", authMiddleware, checkRole('ADMIN'), updateAdmin);
 
 // Delete admin (Admin only)
 router.delete("/:id", authMiddleware, checkRole('ADMIN'), deleteAdmin);
