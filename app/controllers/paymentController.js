@@ -1,10 +1,16 @@
+// ✅ SAFE IMPORTS - paymentController.js
 const { Payment, PaymentOption } = require('../models/Payment');
 const Reservation = require('../models/Reservation');
 const cloudinary = require('../config/cloudinary');
 const User = require('../models/User');
+const Schedule = require('../models/Schedule');
+const Barber = require('../models/Barber'); 
+const Package = require('../models/Package');
+
+
 
 // ========================
-// PAYMENT OPTION FUNCTIONS
+// PAYMENT OPTION FUNCTIONS (unchanged - no populate needed)
 // ========================
 
 // Get all payment options
@@ -416,12 +422,16 @@ const togglePaymentOptionStatus = async (req, res) => {
 };
 
 // ========================
-// EXISTING PAYMENT FUNCTIONS (unchanged)
+// PAYMENT FUNCTIONS WITH FIX
 // ========================
 
 // Upload payment proof
 const uploadPaymentProof = async (req, res) => {
   try {
+    // ✅ REQUIRE MODELS INSIDE FUNCTION
+    
+    console.log('🔍 DEBUG - uploadPaymentProof started at:', new Date());
+
     const { reservationId, paymentMethod, selectedAccount } = req.body;
     
     // Validate required fields
@@ -621,7 +631,7 @@ const uploadPaymentProof = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Upload payment proof error:', error);
+    console.error('🚨 ERROR in uploadPaymentProof:', error);
     res.status(500).json({
       success: false,
       message: "Error uploading payment proof",
@@ -633,6 +643,10 @@ const uploadPaymentProof = async (req, res) => {
 // Get payment details by reservation ID
 const getPaymentDetails = async (req, res) => {
   try {
+    // ✅ REQUIRE MODELS INSIDE FUNCTION
+    
+    console.log('🔍 DEBUG - getPaymentDetails started at:', new Date());
+
     const { reservationId } = req.params;
     
     const payment = await Payment.findOne({ reservationId })
@@ -680,6 +694,7 @@ const getPaymentDetails = async (req, res) => {
     });
 
   } catch (error) {
+    console.error('🚨 ERROR in getPaymentDetails:', error);
     res.status(500).json({
       success: false,
       message: "Error retrieving payment details",
@@ -691,6 +706,10 @@ const getPaymentDetails = async (req, res) => {
 // Get all pending payments (Admin/Cashier only)
 const getPendingPayments = async (req, res) => {
   try {
+    // ✅ REQUIRE MODELS INSIDE FUNCTION
+    
+    console.log('🔍 DEBUG - getPendingPayments started at:', new Date());
+    
     const { status = 'pending' } = req.query;
     
     const query = status === 'all' ? {} : { status };
@@ -709,6 +728,8 @@ const getPendingPayments = async (req, res) => {
       .populate('userId', 'name email phone userId')
       .populate('verifiedBy', 'name role')
       .sort({ createdAt: -1 });
+
+    console.log('🔍 DEBUG - Found payments:', payments.length);
 
     // Format data untuk cashier - include semua info yang dibutuhkan
     const formattedPayments = payments.map(payment => ({
@@ -786,7 +807,7 @@ const getPendingPayments = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get pending payments error:', error);
+    console.error('🚨 ERROR in getPendingPayments:', error);
     res.status(500).json({
       success: false,
       message: "Error retrieving payments",
@@ -798,6 +819,10 @@ const getPendingPayments = async (req, res) => {
 // Get payment by ID
 const getPaymentById = async (req, res) => {
   try {
+    // ✅ REQUIRE MODELS INSIDE FUNCTION
+    
+    console.log('🔍 DEBUG - getPaymentById started at:', new Date());
+
     const { paymentId } = req.params;
     
     const payment = await Payment.findById(paymentId)
@@ -826,6 +851,7 @@ const getPaymentById = async (req, res) => {
     });
 
   } catch (error) {
+    console.error('🚨 ERROR in getPaymentById:', error);
     res.status(500).json({
       success: false,
       message: "Error retrieving payment details",
@@ -837,6 +863,10 @@ const getPaymentById = async (req, res) => {
 // Verify payment dan confirm reservation sekaligus (Admin/Cashier only)
 const verifyPayment = async (req, res) => {
   try {
+    // ✅ REQUIRE MODELS INSIDE FUNCTION
+    
+    console.log('🔍 DEBUG - verifyPayment started at:', new Date());
+
     const { paymentId } = req.params;
     const { status, verificationNote } = req.body;
 
@@ -899,7 +929,6 @@ const verifyPayment = async (req, res) => {
     await reservation.save();
 
     // Update schedule status
-    const Schedule = require('../models/Schedule');
     
     if (status === 'verified') {
       // Schedule tetap booked untuk service
@@ -933,7 +962,7 @@ const verifyPayment = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Verify payment error:', error);
+    console.error('🚨 ERROR in verifyPayment:', error);
     res.status(500).json({
       success: false,
       message: "Error verifying payment",
@@ -945,6 +974,10 @@ const verifyPayment = async (req, res) => {
 // Get pending reservations with payment details (untuk dashboard cashier)
 const getPendingReservationsWithPayment = async (req, res) => {
   try {
+    // ✅ REQUIRE MODELS INSIDE FUNCTION
+    
+    console.log('🔍 DEBUG - getPendingReservationsWithPayment started at:', new Date());
+
     // Cari semua reservations yang statusnya 'pending' dan sudah ada paymentId
     const reservations = await Reservation.find({ 
       status: 'pending',
@@ -963,6 +996,8 @@ const getPendingReservationsWithPayment = async (req, res) => {
       }
     })
     .sort({ createdAt: -1 });
+
+    console.log('🔍 DEBUG - Found pending reservations:', reservations.length);
 
     // Format data untuk cashier dashboard
     const formattedReservations = reservations.map(reservation => ({
@@ -1021,7 +1056,7 @@ const getPendingReservationsWithPayment = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get pending reservations with payment error:', error);
+    console.error('🚨 ERROR in getPendingReservationsWithPayment:', error);
     res.status(500).json({
       success: false,
       message: "Error retrieving pending reservations with payment",
@@ -1031,7 +1066,7 @@ const getPendingReservationsWithPayment = async (req, res) => {
 };
 
 module.exports = {
-  // Payment Option functions
+  // Payment Option functions (unchanged)
   getAllPaymentOptions,
   getPaymentOptionById,
   createPaymentOption,
@@ -1039,8 +1074,8 @@ module.exports = {
   deletePaymentOption,
   togglePaymentOptionStatus,
   
-  // Payment functions (existing)
-  getPaymentMethods, // Updated to use PaymentOption
+  // Payment functions (with fixes)
+  getPaymentMethods,
   uploadPaymentProof,
   getPaymentDetails,
   getPendingPayments,

@@ -5,6 +5,7 @@ const Package = require('../models/Package');        // ✅
 const Barber = require('../models/Barber');          // ✅
 const mongoose = require("mongoose");
 
+
 const getDashboardStats = async (req, res) => {
   try {
     // Fallback counts jika ada model yang error
@@ -28,7 +29,6 @@ const getDashboardStats = async (req, res) => {
       delete mongoose.models.Package;
       delete mongoose.modelSchemas.Package;
       
-      const Package = require("../models/Package");
       
       if (Package && typeof Package.countDocuments === 'function') {
         totalLayanan = await Package.countDocuments({ isActive: true });
@@ -130,7 +130,6 @@ const getDetailedStats = async (req, res) => {
     // Package statistics
     let packageStats = [];
     try {
-      const Package = require("../models/Package");
       packageStats = await Package.aggregate([
         {
           $group: {
