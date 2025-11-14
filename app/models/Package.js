@@ -1,6 +1,3 @@
-const express = require("express");
-const router = express.Router();
-
 const mongoose = require("mongoose");
 
 const packageSchema = new mongoose.Schema({
@@ -38,7 +35,7 @@ const packageSchema = new mongoose.Schema({
   timestamps: true 
 });
 
-// Pre-save middleware dengan retry mechanism
+// pre-save tetap sama
 packageSchema.pre('save', async function(next) {
   if (!this.packageId) {
     let maxRetries = 10;
@@ -46,7 +43,6 @@ packageSchema.pre('save', async function(next) {
     
     while (attempt < maxRetries) {
       try {
-        // Get the highest existing packageId number
         const lastPackage = await this.constructor
           .findOne({}, {}, { sort: { 'packageId': -1 } });
         
@@ -58,7 +54,6 @@ packageSchema.pre('save', async function(next) {
         
         const newPackageId = `PKG${String(nextNumber).padStart(3, '0')}`;
         
-        // Check if this ID already exists
         const existingPackage = await this.constructor.findOne({ packageId: newPackageId });
         
         if (!existingPackage) {
@@ -82,5 +77,5 @@ packageSchema.pre('save', async function(next) {
   next();
 });
 
-module.exports = mongoose.model("Package", packageSchema);
-
+// FIX
+module.exports = mongoose.models.Package || mongoose.model("Package", packageSchema);
