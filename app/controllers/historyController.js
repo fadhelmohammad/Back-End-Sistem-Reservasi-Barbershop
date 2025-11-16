@@ -1,9 +1,12 @@
 const Reservation = require('../models/Reservation');
 const { Payment } = require('../models/Payment');
 const User = require('../models/User');
+const Package = require('../models/Package');        // ✅
+
 
 // ✅ DEFENSIVE MODEL IMPORTS - Check if already registered
 const mongoose = require('mongoose');
+
 
 const getModel = (modelName, modelPath) => {
   try {

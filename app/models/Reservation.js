@@ -1,4 +1,6 @@
 const mongoose = require('mongoose');
+require('./Package');      // ← FIX 100% ERROR
+
 
 const reservationSchema = new mongoose.Schema({
   reservationId: {
@@ -72,6 +74,7 @@ const reservationSchema = new mongoose.Schema({
   cancellationReason: {
     type: String
   }
+  
 }, {
   timestamps: true
 });

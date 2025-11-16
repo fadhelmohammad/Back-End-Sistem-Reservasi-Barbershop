@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Reservation = require("../models/Reservation");
 const Package = require("../models/Package");        // ✅
 const Barber = require("../models/Barber");          // ✅
