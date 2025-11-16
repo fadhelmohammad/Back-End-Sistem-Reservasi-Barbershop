@@ -1,18 +1,35 @@
-const mongoose = require('mongoose');
 const Reservation = require("../models/Reservation");
-const Package = require("../models/Package");        // ✅
-const Barber = require("../models/Barber");          // ✅
-const Schedule = require("../models/Schedule");      // ✅
-const User = require("../models/User");              // ✅
-const { Payment } = require('../models/Payment');   // ✅ Tambahkan ini
+const Package = require("../models/Package");        
+const Barber = require("../models/Barber");          
+const Schedule = require("../models/Schedule");      
+const User = require("../models/User");              
+const { Payment } = require('../models/Payment');   
 const bcrypt = require('bcryptjs');
+const mongoose = require('mongoose');
+
+// ✅ ADD DEBUG FUNCTION
+const debugReservation = (functionName, data) => {
+  console.log(`\n🔍 DEBUG [${functionName}] - ${new Date().toISOString()}`);
+  console.log('📊 Data:', JSON.stringify(data, null, 2));
+  console.log('==========================================\n');
+};
 
 // Get available packages for reservation
 const getAvailablePackages = async (req, res) => {
   try {
+    debugReservation('getAvailablePackages - START', {
+      user: req.user,
+      query: req.query
+    });
+
     const packages = await Package.find({ isActive: true })
       .select('packageId name price description')
       .sort({ price: 1 });
+
+    debugReservation('getAvailablePackages - RESULT', {
+      count: packages.length,
+      packages: packages.map(p => ({ id: p._id, name: p.name, price: p.price }))
+    });
 
     res.status(200).json({
       success: true,
@@ -21,6 +38,11 @@ const getAvailablePackages = async (req, res) => {
       count: packages.length
     });
   } catch (error) {
+    debugReservation('getAvailablePackages - ERROR', {
+      message: error.message,
+      stack: error.stack
+    });
+
     res.status(500).json({
       success: false,
       message: "Error retrieving available packages",
@@ -32,8 +54,18 @@ const getAvailablePackages = async (req, res) => {
 // Step 2: Get available barbers
 const getAvailableBarbers = async (req, res) => {
   try {
+    debugReservation('getAvailableBarbers - START', {
+      user: req.user,
+      query: req.query
+    });
+
     const barbers = await Barber.find({ isActive: true })
       .select('name email phone specialization experience');
+
+    debugReservation('getAvailableBarbers - RESULT', {
+      count: barbers.length,
+      barbers: barbers.map(b => ({ id: b._id, name: b.name, specialization: b.specialization }))
+    });
 
     res.status(200).json({
       success: true,
@@ -41,6 +73,11 @@ const getAvailableBarbers = async (req, res) => {
       data: barbers
     });
   } catch (error) {
+    debugReservation('getAvailableBarbers - ERROR', {
+      message: error.message,
+      stack: error.stack
+    });
+
     res.status(500).json({
       success: false,
       message: "Error retrieving barbers",
@@ -54,6 +91,12 @@ const getAvailableSchedules = async (req, res) => {
   try {
     const { barberId } = req.params;
     const { date } = req.query;
+
+    debugReservation('getAvailableSchedules - START', {
+      barberId,
+      date,
+      user: req.user
+    });
 
     let query = { 
       barber: barberId, 
@@ -75,9 +118,24 @@ const getAvailableSchedules = async (req, res) => {
       query.scheduled_time = { $gte: new Date() };
     }
 
+    debugReservation('getAvailableSchedules - QUERY', {
+      query,
+      dateFilter: date ? 'specific date' : 'future dates only'
+    });
+
     const schedules = await Schedule.find(query)
       .populate('barber', 'name')
       .sort({ scheduled_time: 1 });
+
+    debugReservation('getAvailableSchedules - RESULT', {
+      count: schedules.length,
+      schedules: schedules.map(s => ({ 
+        id: s._id, 
+        timeSlot: s.timeSlot, 
+        date: s.date,
+        barberName: s.barber?.name 
+      }))
+    });
 
     res.status(200).json({
       success: true,
@@ -85,6 +143,11 @@ const getAvailableSchedules = async (req, res) => {
       data: schedules
     });
   } catch (error) {
+    debugReservation('getAvailableSchedules - ERROR', {
+      message: error.message,
+      stack: error.stack
+    });
+
     res.status(500).json({
       success: false,
       message: "Error retrieving schedules",
@@ -106,8 +169,24 @@ const createReservation = async (req, res) => {
       email
     } = req.body;
 
+    debugReservation('createReservation - START', {
+      body: req.body,
+      user: req.user
+    });
+
     // Validate required fields
     if (!packageId || !barberId || !scheduleId || !name || !phone || !email) {
+      debugReservation('createReservation - VALIDATION_ERROR', {
+        missing: {
+          packageId: !packageId,
+          barberId: !barberId,
+          scheduleId: !scheduleId,
+          name: !name,
+          phone: !phone,
+          email: !email
+        }
+      });
+
       return res.status(400).json({
         success: false,
         message: "Package, barber, schedule, name, phone, and email are required"
@@ -123,6 +202,13 @@ const createReservation = async (req, res) => {
       currentUser = await User.findById(userIdentifier).select('_id userId name');
     }
 
+    debugReservation('createReservation - USER_LOOKUP', {
+      userIdentifier,
+      userFound: !!currentUser,
+      currentUserId: currentUser?._id,
+      currentUserName: currentUser?.name
+    });
+
     if (!currentUser) {
       return res.status(404).json({
         success: false,
@@ -133,6 +219,7 @@ const createReservation = async (req, res) => {
     // Validate package exists and is active
     const packageExists = await Package.findOne({ _id: packageId, isActive: true });
     if (!packageExists) {
+      debugReservation('createReservation - PACKAGE_NOT_FOUND', { packageId });
       return res.status(404).json({
         success: false,
         message: "Active package not found"
@@ -142,6 +229,7 @@ const createReservation = async (req, res) => {
     // Validate barber exists and is active
     const barberExists = await Barber.findOne({ _id: barberId, isActive: true });
     if (!barberExists) {
+      debugReservation('createReservation - BARBER_NOT_FOUND', { barberId });
       return res.status(404).json({
         success: false,
         message: "Active barber not found"
@@ -156,11 +244,22 @@ const createReservation = async (req, res) => {
     });
     
     if (!schedule) {
+      debugReservation('createReservation - SCHEDULE_NOT_AVAILABLE', { 
+        scheduleId, 
+        barberId,
+        scheduleFound: !!schedule 
+      });
       return res.status(400).json({
         success: false,
         message: "Schedule is not available or doesn't belong to the specified barber"
       });
     }
+
+    debugReservation('createReservation - VALIDATIONS_PASSED', {
+      package: { id: packageExists._id, name: packageExists.name, price: packageExists.price },
+      barber: { id: barberExists._id, name: barberExists.name },
+      schedule: { id: schedule._id, timeSlot: schedule.timeSlot, date: schedule.date }
+    });
 
     // ✅ SIMPLIFIED: Always manual booking - no customer reference
     const reservation = new Reservation({
@@ -180,10 +279,23 @@ const createReservation = async (req, res) => {
     // Save reservation
     const savedReservation = await reservation.save();
 
+    debugReservation('createReservation - RESERVATION_SAVED', {
+      reservationId: savedReservation.reservationId,
+      _id: savedReservation._id,
+      status: savedReservation.status,
+      totalPrice: savedReservation.totalPrice
+    });
+
     // Update schedule status to booked
     await Schedule.findByIdAndUpdate(scheduleId, { 
       status: 'booked',
       reservation: savedReservation._id
+    });
+
+    debugReservation('createReservation - SCHEDULE_UPDATED', {
+      scheduleId,
+      newStatus: 'booked',
+      linkedReservation: savedReservation._id
     });
 
     // Populate the saved reservation for response
@@ -194,6 +306,14 @@ const createReservation = async (req, res) => {
       { path: 'barber', select: 'name barberId' },
       { path: 'schedule', select: 'date timeSlot scheduled_time' }
     ]);
+
+    debugReservation('createReservation - SUCCESS', {
+      reservationId: savedReservation.reservationId,
+      customerName: savedReservation.customerName,
+      packageName: savedReservation.package?.name,
+      barberName: savedReservation.barber?.name,
+      scheduledTime: savedReservation.schedule?.scheduled_time
+    });
 
     res.status(201).json({
       success: true,
@@ -208,6 +328,12 @@ const createReservation = async (req, res) => {
     });
 
   } catch (error) {
+    debugReservation('createReservation - ERROR', {
+      message: error.message,
+      stack: error.stack,
+      code: error.code
+    });
+
     console.error('Create reservation error:', error);
     
     // Handle duplicate key errors
@@ -241,6 +367,11 @@ const getAllReservations = async (req, res) => {
       startDate,
       endDate
     } = req.query;
+
+    debugReservation('getAllReservations - START', {
+      query: req.query,
+      user: req.user
+    });
 
     // ✅ Build query object with filters
     let query = {};
@@ -284,7 +415,12 @@ const getAllReservations = async (req, res) => {
     const skip = (page - 1) * limit;
     const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
 
-    console.log('🔍 DEBUG - Query:', query); // Debug log
+    debugReservation('getAllReservations - QUERY_BUILT', {
+      query,
+      pagination: { page, limit, skip },
+      sort,
+      filters: { status, barberId, packageId, startDate, endDate }
+    });
 
     // ✅ Execute query with filters
     const reservations = await Reservation.find(query)
@@ -298,15 +434,44 @@ const getAllReservations = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
+    debugReservation('getAllReservations - RESERVATIONS_FOUND', {
+      count: reservations.length,
+      statusBreakdown: reservations.reduce((acc, r) => {
+        acc[r.status] = (acc[r.status] || 0) + 1;
+        return acc;
+      }, {}),
+      reservationIds: reservations.map(r => r.reservationId),
+      firstReservation: reservations[0] ? {
+        id: reservations[0]._id,
+        status: reservations[0].status,
+        customerName: reservations[0].customerName,
+        packageName: reservations[0].package?.name,
+        barberName: reservations[0].barber?.name
+      } : null
+    });
+
     // ✅ Get payment data for these reservations
     const reservationIds = reservations.map(r => r._id);
-    const { Payment } = require('../models/Payment');
     const payments = await Payment.find({ 
       reservationId: { $in: reservationIds },
       status: { $in: ['pending', 'verified', 'rejected'] }
     })
       .populate('verifiedBy', 'name role userId')
       .select('reservationId paymentId amount paymentMethod status verifiedAt verificationNote uploadedAt rejectedAt');
+
+    debugReservation('getAllReservations - PAYMENTS_FOUND', {
+      count: payments.length,
+      paymentsByStatus: payments.reduce((acc, p) => {
+        acc[p.status] = (acc[p.status] || 0) + 1;
+        return acc;
+      }, {}),
+      paymentIds: payments.map(p => p.paymentId),
+      reservationPaymentMap: payments.map(p => ({
+        reservationId: p.reservationId,
+        paymentId: p.paymentId,
+        status: p.status
+      }))
+    });
 
     // ✅ Map payments to reservations
     const paymentMap = {};
@@ -369,6 +534,16 @@ const getAllReservations = async (req, res) => {
       };
     });
 
+    debugReservation('getAllReservations - FINAL_RESULT', {
+      totalReservations,
+      formattedCount: formattedReservations.length,
+      finalStatusBreakdown: formattedReservations.reduce((acc, r) => {
+        acc[r.finalStatus] = (acc[r.finalStatus] || 0) + 1;
+        return acc;
+      }, {}),
+      sampleFormattedData: formattedReservations[0] || null
+    });
+
     // ✅ SIMPLIFIED RESPONSE - HANYA COUNT
     res.status(200).json({
       success: true,
@@ -378,11 +553,21 @@ const getAllReservations = async (req, res) => {
     });
 
   } catch (error) {
+    debugReservation('getAllReservations - ERROR', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+
     console.error('Get all reservations error:', error);
     res.status(500).json({
       success: false,
       message: "Error retrieving reservations",
-      error: error.message
+      error: error.message,
+      debug: {
+        timestamp: new Date().toISOString(),
+        function: 'getAllReservations'
+      }
     });
   }
 };
@@ -393,6 +578,12 @@ const getReservationById = async (req, res) => {
     const { id } = req.params;
     const userIdentifier = req.user.userId || req.user.id;
     const userRole = req.user.role;
+
+    debugReservation('getReservationById - START', {
+      id,
+      userIdentifier,
+      userRole
+    });
 
     const reservation = await Reservation.findById(id)
       .populate({
@@ -411,6 +602,13 @@ const getReservationById = async (req, res) => {
         path: 'schedule',
         select: 'scheduled_time timeSlot date'
       });
+
+    debugReservation('getReservationById - RESULT', {
+      reservationFound: !!reservation,
+      reservationId: reservation?.reservationId,
+      status: reservation?.status,
+      customerName: reservation?.customerName
+    });
 
     if (!reservation) {
       return res.status(404).json({
@@ -444,6 +642,11 @@ const getReservationById = async (req, res) => {
     });
 
   } catch (error) {
+    debugReservation('getReservationById - ERROR', {
+      message: error.message,
+      stack: error.stack
+    });
+
     console.error("Error retrieving reservation:", error);
     res.status(500).json({
       success: false,
@@ -457,6 +660,12 @@ const getReservationById = async (req, res) => {
 const getUserReservations = async (req, res) => {
   try {
     const userIdentifier = req.user.userId || req.user.id;
+
+    debugReservation('getUserReservations - START', {
+      userIdentifier,
+      user: req.user,
+      query: req.query
+    });
     
     // Find user first to get MongoDB _id
     let user;
@@ -466,6 +675,13 @@ const getUserReservations = async (req, res) => {
       user = await User.findById(userIdentifier).select('_id name email');
     }
     
+    debugReservation('getUserReservations - USER_LOOKUP', {
+      userIdentifier,
+      userFound: !!user,
+      userId: user?._id,
+      userName: user?.name
+    });
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -476,7 +692,7 @@ const getUserReservations = async (req, res) => {
     // ✅ Query reservations - filter hanya status pending dan confirmed
     const reservations = await Reservation.find({
       createdBy: user._id,
-      status: { $in: ['pending', 'confirmed',] } // ✅ FILTER STATUS
+      status: { $in: ['pending', 'confirmed'] } // ✅ FILTER STATUS
     })
       .populate({
         path: 'createdBy',
@@ -500,12 +716,29 @@ const getUserReservations = async (req, res) => {
       })
       .sort({ createdAt: -1 });
 
+    debugReservation('getUserReservations - RESERVATIONS_FOUND', {
+      count: reservations.length,
+      statusBreakdown: reservations.reduce((acc, r) => {
+        acc[r.status] = (acc[r.status] || 0) + 1;
+        return acc;
+      }, {}),
+      reservationIds: reservations.map(r => r.reservationId)
+    });
+
     // ✅ Get payment data for these reservations
     const reservationIds = reservations.map(r => r._id);
-    const { Payment } = require('../models/Payment');
     const payments = await Payment.find({ reservationId: { $in: reservationIds } })
       .populate('verifiedBy', 'name role userId')
       .select('reservationId paymentId amount paymentMethod status verifiedAt verificationNote uploadedAt rejectedAt');
+
+    debugReservation('getUserReservations - PAYMENTS_FOUND', {
+      count: payments.length,
+      paymentsByStatus: payments.reduce((acc, p) => {
+        acc[p.status] = (acc[p.status] || 0) + 1;
+        return acc;
+      }, {}),
+      paymentIds: payments.map(p => p.paymentId)
+    });
 
     // ✅ Map payments to reservations
     const paymentMap = {};
@@ -571,6 +804,18 @@ const getUserReservations = async (req, res) => {
     const rejectedPaymentCount = formattedReservations.filter(r => r.payment?.status === 'rejected').length;
     const noPaymentCount = formattedReservations.filter(r => !r.payment).length;
 
+    debugReservation('getUserReservations - FINAL_RESULT', {
+      totalReservations: formattedReservations.length,
+      summary: {
+        pendingCount,
+        confirmedCount,
+        pendingPaymentCount,
+        verifiedPaymentCount,
+        rejectedPaymentCount,
+        noPaymentCount
+      }
+    });
+
     res.status(200).json({
       success: true,
       message: "User reservations retrieved successfully",
@@ -592,11 +837,20 @@ const getUserReservations = async (req, res) => {
     });
 
   } catch (error) {
+    debugReservation('getUserReservations - ERROR', {
+      message: error.message,
+      stack: error.stack
+    });
+
     console.error("Error retrieving user reservations:", error);
     res.status(500).json({
       success: false,
       message: "Error retrieving user reservations",
-      error: error.message
+      error: error.message,
+      debug: {
+        timestamp: new Date().toISOString(),
+        function: 'getUserReservations'
+      }
     });
   }
 };

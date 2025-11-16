@@ -1,30 +1,13 @@
 const Reservation = require('../models/Reservation');
 const { Payment } = require('../models/Payment');
 const User = require('../models/User');
-const Package = require('../models/Package');        // ✅
-
-
-// ✅ DEFENSIVE MODEL IMPORTS - Check if already registered
-const mongoose = require('mongoose');
-
-
-const getModel = (modelName, modelPath) => {
-  try {
-    return mongoose.model(modelName);
-  } catch (error) {
-    console.log(`Model ${modelName} not registered, requiring from ${modelPath}`);
-    return require(modelPath);
-  }
-};
+const Package = require('../models/Package');
+const Barber = require('../models/Barber');
+const Schedule = require('../models/Schedule');
 
 // Admin: Melihat seluruh riwayat reservasi dari semua customer
 const getAllReservationHistory = async (req, res) => {
   try {
-    // ✅ SAFE MODEL LOADING
-    const Package = getModel('Package', '../models/Package');
-    const Barber = getModel('Barber', '../models/Barber');
-    const Schedule = getModel('Schedule', '../models/Schedule');
-
     const { 
       page = 1, 
       limit = 10, 
@@ -201,11 +184,6 @@ const getAllReservationHistory = async (req, res) => {
 // Cashier: Melihat riwayat reservasi yang DIA verifikasi paymentnya
 const getCashierReservationHistory = async (req, res) => {
   try {
-    // ✅ SAFE MODEL LOADING
-    const Package = getModel('Package', '../models/Package');
-    const Barber = getModel('Barber', '../models/Barber');
-    const Schedule = getModel('Schedule', '../models/Schedule');
-
     const userIdentifier = req.user.userId || req.user.id;
     const { 
       page = 1, 
@@ -402,11 +380,6 @@ const getCashierReservationHistory = async (req, res) => {
 // Customer: Melihat riwayat reservasi (completed & cancelled only)
 const getCustomerReservationHistory = async (req, res) => {
   try {
-    // ✅ SAFE MODEL LOADING
-    const Package = getModel('Package', '../models/Package');
-    const Barber = getModel('Barber', '../models/Barber');
-    const Schedule = getModel('Schedule', '../models/Schedule');
-
     const userIdentifier = req.user.userId || req.user.id;
     const { 
       page = 1, 
