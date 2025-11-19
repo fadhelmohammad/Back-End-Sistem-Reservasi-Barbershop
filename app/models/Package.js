@@ -78,4 +78,5 @@ packageSchema.pre('save', async function(next) {
 });
 
 // FIX
-module.exports = mongoose.models.Package || mongoose.model("Package", packageSchema);
+module.exports = mongoose.models.Package ||
+mongoose.model("Package", packageSchema);

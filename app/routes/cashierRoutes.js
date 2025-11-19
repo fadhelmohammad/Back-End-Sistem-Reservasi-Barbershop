@@ -1,34 +1,35 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
+const { authMiddleware, checkRole } = require('../middleware/authMiddleware');
+
+// ✅ Import from cashierController (existing functions)
 const {
   getAllCashiers,
   getCashierById,
   createCashier,
   updateCashier,
   deleteCashier,
-  getCashierProfile,    // TAMBAHAN
-  updateCashierProfile  // TAMBAHAN
-} = require("../controllers/cashierController");
+  updateCashierPassword
+} = require('../controllers/cashierController');
 
-const { authMiddleware, checkRole } = require("../middleware/authMiddleware");
+// ✅ Import from cashierReservationController (NEW functions)
+const {
+  createWalkInReservation,
+  completeService,
+  getCashierWalkInReservations
+} = require('../controllers/cashierReservationController');
 
-// Get all cashiers (Admin only)
-router.get("/", authMiddleware, checkRole('ADMIN'), getAllCashiers);
+// ===== CASHIER MANAGEMENT ROUTES (Admin only) =====
+router.get('/', authMiddleware, checkRole(['ADMIN']), getAllCashiers);
+router.get('/:id', authMiddleware, checkRole(['ADMIN']), getCashierById);
+router.post('/', authMiddleware, checkRole(['ADMIN']), createCashier);
+router.put('/:id', authMiddleware, checkRole(['ADMIN']), updateCashier);
+router.delete('/:id', authMiddleware, checkRole(['ADMIN']), deleteCashier);
+router.patch('/:id/password', authMiddleware, checkRole(['ADMIN']), updateCashierPassword);
 
-// Profile routes (self management)
-router.get('/profile', authMiddleware, checkRole('CASHIER'), getCashierProfile);
-router.put('/profile', authMiddleware, checkRole('CASHIER'), updateCashierProfile);
-
-// Get cashier by ID (Admin only)
-router.get("/:id", authMiddleware, checkRole('ADMIN'), getCashierById);
-
-// Create new cashier (Admin only)
-router.post("/", authMiddleware, checkRole('ADMIN'), createCashier);
-
-// Update cashier (Admin only)
-router.put("/:id", authMiddleware, checkRole('ADMIN'), updateCashier);
-
-// Delete cashier (Admin only)
-router.delete("/:id", authMiddleware, checkRole('ADMIN'), deleteCashier);
+// ===== WALK-IN RESERVATION ROUTES (Cashier only) =====
+router.post('/walk-in-reservation', authMiddleware, checkRole(['CASHIER']), createWalkInReservation);
+router.patch('/complete-service/:id', authMiddleware, checkRole(['CASHIER']), completeService);
+router.get('/walk-in-reservations', authMiddleware, checkRole(['CASHIER']), getCashierWalkInReservations);
 
 module.exports = router;

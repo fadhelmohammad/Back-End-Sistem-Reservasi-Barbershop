@@ -17,6 +17,12 @@ const defaultUsers = [
     password: "admin123"
   },
   {
+    name: "Admin Manager",
+    email: "manager@brocode.com",
+    role: "admin",
+    password: "admin123"
+  },
+  {
     name: "Cashier One",
     email: "cashier1@barbershop.com",
     role: "cashier",
@@ -29,23 +35,37 @@ const defaultUsers = [
     password: "cashier123"
   },
   {
-    name: "John Customer",
+    name: "John Doe",
     email: "john@customer.com",
-    phone: "08123456792",
+    phone: "+6281234567890",
     role: "customer",
     password: "customer123"
   },
   {
-    name: "Jane Customer",
+    name: "Jane Smith",
     email: "jane@customer.com",
-    phone: "08123456793",
+    phone: "+6281234567891",
     role: "customer",
     password: "customer123"
   },
   {
-    name: "Bob Customer",
-    email: "bob@customer.com",
-    phone: "08123456794",
+    name: "Mike Johnson",
+    email: "mike@customer.com",
+    phone: "+6281234567892",
+    role: "customer",
+    password: "customer123"
+  },
+  {
+    name: "Sarah Wilson",
+    email: "sarah@customer.com",
+    phone: "+6281234567893",
+    role: "customer",
+    password: "customer123"
+  },
+  {
+    name: "David Brown",
+    email: "david@customer.com",
+    phone: "+6281234567894",
     role: "customer",
     password: "customer123"
   }

@@ -23,7 +23,27 @@ const reservationSchema = new mongoose.Schema({
   },
   customerEmail: {
     type: String,
-    required: true
+    trim: true,
+    lowercase: true,
+    validate: {
+      validator: function(email) {
+        // ✅ Email not required for walk-in reservations
+        if (this.isWalkIn && !email) {
+          return true; // Allow null/undefined for walk-in
+        }
+        // ✅ If email provided, validate format
+        if (email) {
+          return /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/.test(email);
+        }
+        // ✅ For non-walk-in, email is required
+        return !this.isWalkIn ? false : true;
+      },
+      message: 'Please enter a valid email address'
+    },
+    required: function() {
+      // ✅ Email required only for non-walk-in reservations
+      return !this.isWalkIn;
+    }
   },
   createdBy: { // ✅ TAMBAHAN: siapa yang membuat reservation
     type: mongoose.Schema.Types.ObjectId,
@@ -73,6 +93,25 @@ const reservationSchema = new mongoose.Schema({
   },
   cancellationReason: {
     type: String
+  },
+  isWalkIn: {
+    type: Boolean,
+    default: false
+  },
+  completedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  serviceNotes: {
+    type: String,
+    trim: true,
+    default: ''
+  },
+  paymentMethod: {
+    type: String,
+    enum: ['cash', 'bank_transfer', 'e_wallet'],
+    default: null
   }
   
 }, {
