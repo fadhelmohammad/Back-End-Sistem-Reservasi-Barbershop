@@ -155,7 +155,7 @@ const getAllReservationHistory = async (req, res) => {
       };
     });
 
-    // Count breakdown
+    // ✅ Simplified count breakdown
     const completedCount = formattedHistory.filter(r => r.status === 'completed').length;
     const cancelledCount = formattedHistory.filter(r => r.status === 'cancelled').length;
 
@@ -181,7 +181,7 @@ const getAllReservationHistory = async (req, res) => {
   }
 };
 
-// Cashier: Melihat riwayat reservasi yang DIA verifikasi paymentnya
+// Cashier: Melihat riwayat reservasi yang DIA verifikasi paymentnya + walk-in reservations yang DIA buat
 const getCashierReservationHistory = async (req, res) => {
   try {
     const userIdentifier = req.user.userId || req.user.id;
@@ -192,7 +192,8 @@ const getCashierReservationHistory = async (req, res) => {
       startDate,
       endDate,
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      includeWalkIn = 'true'
     } = req.query;
 
     // Find cashier user
@@ -210,30 +211,30 @@ const getCashierReservationHistory = async (req, res) => {
       cashierObjectId = userIdentifier;
     }
 
-    // Build query untuk reservasi completed & cancelled yang payment-nya diverifikasi oleh cashier ini
-    let query = {
+    // ✅ Base query untuk completed & cancelled reservations
+    let baseQuery = {
       status: { $in: ['completed', 'cancelled'] }
     };
     
     // Optional: Allow further filtering if status query param provided
     if (status && ['completed', 'cancelled'].includes(status)) {
-      query.status = status;
+      baseQuery.status = status;
     }
     
     // Date range filter
     if (startDate || endDate) {
-      query.createdAt = {};
+      baseQuery.createdAt = {};
       if (startDate) {
-        query.createdAt.$gte = new Date(startDate);
+        baseQuery.createdAt.$gte = new Date(startDate);
       }
       if (endDate) {
         const endDateObj = new Date(endDate);
         endDateObj.setHours(23, 59, 59, 999);
-        query.createdAt.$lte = endDateObj;
+        baseQuery.createdAt.$lte = endDateObj;
       }
     }
 
-    // Get payments verified by this cashier
+    // ✅ 1. Get regular reservations yang payment-nya diverifikasi oleh cashier ini
     const paymentsVerifiedByCashier = await Payment.find({
       verifiedBy: cashierObjectId,
       status: 'verified'
@@ -241,18 +242,43 @@ const getCashierReservationHistory = async (req, res) => {
 
     const reservationIdsVerifiedByCashier = paymentsVerifiedByCashier.map(p => p.reservationId);
 
-    // Add filter untuk reservasi yang payment-nya diverifikasi oleh cashier ini
-    query._id = { $in: reservationIdsVerifiedByCashier };
+    // ✅ 2. Build combined query
+    let combinedQuery = [];
+
+    // Regular reservations yang payment-nya diverifikasi oleh cashier
+    if (reservationIdsVerifiedByCashier.length > 0) {
+      combinedQuery.push({
+        ...baseQuery,
+        _id: { $in: reservationIdsVerifiedByCashier },
+        isWalkIn: { $ne: true }
+      });
+    }
+
+    // ✅ Walk-in reservations yang dibuat oleh cashier ini
+    if (includeWalkIn === 'true') {
+      combinedQuery.push({
+        ...baseQuery,
+        $or: [
+          { createdBy: cashierObjectId },
+          { completedBy: cashierObjectId }
+        ],
+        isWalkIn: true
+      });
+    }
+
+    // ✅ Final query using $or
+    const finalQuery = combinedQuery.length > 0 ? { $or: combinedQuery } : { _id: { $in: [] } };
 
     const skip = (page - 1) * limit;
     const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
 
-    const reservations = await Reservation.find(query)
+    const reservations = await Reservation.find(finalQuery)
       .populate('package', 'name price description services duration')
       .populate('barber', 'name barberId specialties')
       .populate('schedule', 'date timeSlot scheduled_time')
       .populate('confirmedBy', 'name role userId')
       .populate('createdBy', 'name email userId')
+      .populate('completedBy', 'name role userId')
       .sort(sort)
       .skip(skip)
       .limit(parseInt(limit));
@@ -269,9 +295,9 @@ const getCashierReservationHistory = async (req, res) => {
       paymentMap[payment.reservationId.toString()] = payment;
     });
 
-    const totalReservations = await Reservation.countDocuments(query);
+    const totalReservations = await Reservation.countDocuments(finalQuery);
 
-    // Format response untuk cashier history
+    // ✅ Format response
     const formattedHistory = reservations.map(reservation => {
       const payment = paymentMap[reservation._id.toString()];
       
@@ -311,8 +337,13 @@ const getCashierReservationHistory = async (req, res) => {
         status: reservation.status,
         finalStatus: getFinalReservationStatus(reservation.status, payment?.status),
         notes: reservation.notes,
+        serviceNotes: reservation.serviceNotes,
         
-        // Payment info (cashier view - yang dia verifikasi)
+        // ✅ Walk-in specific info
+        isWalkIn: reservation.isWalkIn || false,
+        paymentMethod: reservation.paymentMethod,
+        
+        // Payment info
         payment: payment ? {
           paymentId: payment.paymentId,
           amount: payment.amount,
@@ -327,14 +358,19 @@ const getCashierReservationHistory = async (req, res) => {
           } : null
         } : null,
         
-        // Service staff info
+        // Staff info
         confirmedBy: reservation.confirmedBy ? {
           name: reservation.confirmedBy.name,
           role: reservation.confirmedBy.role,
           userId: reservation.confirmedBy.userId
         } : null,
         
-        // Who created this reservation
+        completedBy: reservation.completedBy ? {
+          name: reservation.completedBy.name,
+          role: reservation.completedBy.role,
+          userId: reservation.completedBy.userId
+        } : null,
+        
         createdBy: reservation.createdBy ? {
           name: reservation.createdBy.name,
           email: reservation.createdBy.email,
@@ -351,7 +387,7 @@ const getCashierReservationHistory = async (req, res) => {
       };
     });
 
-    // Count breakdown
+    // ✅ Simplified summary - hanya basic counts
     const completedCount = formattedHistory.filter(r => r.status === 'completed').length;
     const cancelledCount = formattedHistory.filter(r => r.status === 'cancelled').length;
 
@@ -377,7 +413,7 @@ const getCashierReservationHistory = async (req, res) => {
   }
 };
 
-// Customer: Melihat riwayat reservasi (completed & cancelled only)
+// ✅ Customer: Melihat riwayat reservasi customer sendiri
 const getCustomerReservationHistory = async (req, res) => {
   try {
     const userIdentifier = req.user.userId || req.user.id;
@@ -391,28 +427,28 @@ const getCustomerReservationHistory = async (req, res) => {
       sortOrder = 'desc'
     } = req.query;
 
-    // Find user first to get MongoDB _id (sama seperti getUserReservations)
-    let user;
+    // Find customer user
+    let customerObjectId;
     if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
-      user = await User.findOne({ userId: userIdentifier }).select('_id name email');
+      const customer = await User.findOne({ userId: userIdentifier });
+      if (!customer) {
+        return res.status(404).json({
+          success: false,
+          message: "Customer not found"
+        });
+      }
+      customerObjectId = customer._id;
     } else {
-      user = await User.findById(userIdentifier).select('_id name email');
-    }
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found"
-      });
+      customerObjectId = userIdentifier;
     }
 
-    // Build query - FILTER HANYA completed dan cancelled
+    // Build query - all reservations created by this customer
     let query = {
-      createdBy: user._id, 
+      createdBy: customerObjectId,
       status: { $in: ['completed', 'cancelled'] }
     };
     
-    // Optional: Allow further filtering if status query param provided
+    // Optional status filter
     if (status && ['completed', 'cancelled'].includes(status)) {
       query.status = status;
     }
@@ -433,28 +469,10 @@ const getCustomerReservationHistory = async (req, res) => {
     const skip = (page - 1) * limit;
     const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
 
-    // Query reservations - sama persis seperti getUserReservations tapi dengan filter history
     const reservations = await Reservation.find(query)
-      .populate({
-        path: 'createdBy',
-        select: 'name email userId'
-      })
-      .populate({
-        path: 'package',
-        select: 'name price description duration'
-      })
-      .populate({
-        path: 'barber',
-        select: 'name email phone specialization'
-      })
-      .populate({
-        path: 'schedule',
-        select: 'scheduled_time timeSlot date'
-      })
-      .populate({
-        path: 'confirmedBy',
-        select: 'name email'
-      })
+      .populate('package', 'name price description services duration')
+      .populate('barber', 'name barberId specialties')
+      .populate('schedule', 'date timeSlot scheduled_time')
       .sort(sort)
       .skip(skip)
       .limit(parseInt(limit));
@@ -462,8 +480,7 @@ const getCustomerReservationHistory = async (req, res) => {
     // Get payment data for these reservations
     const reservationIds = reservations.map(r => r._id);
     const payments = await Payment.find({ reservationId: { $in: reservationIds } })
-      .populate('verifiedBy', 'name role userId')
-      .select('reservationId paymentId amount paymentMethod status verifiedAt verificationNote');
+      .select('reservationId paymentId amount paymentMethod status verifiedAt');
 
     // Map payments to reservations
     const paymentMap = {};
@@ -473,52 +490,45 @@ const getCustomerReservationHistory = async (req, res) => {
 
     const totalReservations = await Reservation.countDocuments(query);
 
-    // Format response - sama seperti getUserReservations format
+    // Format response for customer view
     const formattedHistory = reservations.map(reservation => {
       const payment = paymentMap[reservation._id.toString()];
       
       return {
         _id: reservation._id,
         reservationId: reservation.reservationId,
-        status: reservation.status,
-        customerName: reservation.customerName,
-        customerPhone: reservation.customerPhone,
-        customerEmail: reservation.customerEmail,
-        notes: reservation.notes,
-        totalPrice: reservation.totalPrice,
         
-        // Related data
-        createdBy: reservation.createdBy,
+        // Service details
         package: reservation.package,
         barber: reservation.barber,
         schedule: reservation.schedule,
-        confirmedBy: reservation.confirmedBy,
         
-        // Payment info (limited untuk customer)
+        // Reservation details
+        totalPrice: reservation.totalPrice,
+        status: reservation.status,
+        finalStatus: getFinalReservationStatus(reservation.status, payment?.status),
+        notes: reservation.notes,
+        
+        // Payment info (customer view - limited info)
         payment: payment ? {
           paymentId: payment.paymentId,
           amount: payment.amount,
           paymentMethod: payment.paymentMethod,
           status: payment.status,
-          verifiedAt: payment.verifiedAt,
-          verificationNote: payment.status === 'rejected' ? payment.verificationNote : null
+          verifiedAt: payment.verifiedAt
         } : null,
-        
-        // Status descriptions
-        finalStatus: getFinalStatus(reservation.status, payment?.status),
-        statusDescription: getStatusDescription(reservation.status, payment?.status),
         
         // Timestamps
         createdAt: reservation.createdAt,
-        updatedAt: reservation.updatedAt,
         confirmedAt: reservation.confirmedAt,
         completedAt: reservation.completedAt,
         cancelledAt: reservation.cancelledAt,
+        cancelReason: reservation.cancelReason,
         cancellationReason: reservation.cancellationReason
       };
     });
 
-    // Count breakdown
+    // Summary
     const completedCount = formattedHistory.filter(r => r.status === 'completed').length;
     const cancelledCount = formattedHistory.filter(r => r.status === 'cancelled').length;
 
@@ -535,7 +545,7 @@ const getCustomerReservationHistory = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Error retrieving customer reservation history:", error);
+    console.error('Get customer reservation history error:', error);
     res.status(500).json({
       success: false,
       message: "Error retrieving customer reservation history",
@@ -544,10 +554,10 @@ const getCustomerReservationHistory = async (req, res) => {
   }
 };
 
-// HELPER FUNCTIONS
+// ✅ Helper functions
 const getFinalReservationStatus = (reservationStatus, paymentStatus) => {
-  if (reservationStatus === 'completed' && paymentStatus === 'verified') return 'Service Completed';
-  if (reservationStatus === 'completed') return 'Completed';
+  if (reservationStatus === 'completed' && paymentStatus === 'verified') return 'Service Completed (Verified Payment)';
+  if (reservationStatus === 'completed') return 'Service Completed';
   if (reservationStatus === 'cancelled' && paymentStatus === 'verified') return 'Cancelled (Paid)';
   if (reservationStatus === 'cancelled' && paymentStatus === 'rejected') return 'Cancelled (Payment Rejected)';
   if (reservationStatus === 'cancelled') return 'Cancelled';
@@ -580,7 +590,7 @@ const getStatusDescription = (reservationStatus, paymentStatus) => {
 module.exports = {
   getAllReservationHistory,
   getCashierReservationHistory,
-  getCustomerReservationHistory,
+  getCustomerReservationHistory, // ✅ Added
   getFinalReservationStatus,
   getFinalStatus,
   getStatusDescription
