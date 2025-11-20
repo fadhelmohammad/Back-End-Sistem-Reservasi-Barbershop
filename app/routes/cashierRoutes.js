@@ -14,8 +14,7 @@ const {
 
 // ✅ Import from cashierReservationController (NEW functions)
 const {
-  createWalkInReservation,
-  completeService,
+  manageWalkInReservation, // ✅ GABUNG FUNCTION
   getCashierWalkInReservations
 } = require('../controllers/cashierReservationController');
 
@@ -28,8 +27,7 @@ router.delete('/:id', authMiddleware, checkRole(['ADMIN']), deleteCashier);
 router.patch('/:id/password', authMiddleware, checkRole(['ADMIN']), updateCashierPassword);
 
 // ===== WALK-IN RESERVATION ROUTES (Cashier only) =====
-router.post('/walk-in-reservation', authMiddleware, checkRole(['CASHIER']), createWalkInReservation);
-router.patch('/complete-service/:id', authMiddleware, checkRole(['CASHIER']), completeService);
+router.post('/walk-in-reservation', authMiddleware, checkRole(['CASHIER']), manageWalkInReservation); // ✅ GABUNG ENDPOINT
 router.get('/walk-in-reservations', authMiddleware, checkRole(['CASHIER']), getCashierWalkInReservations);
 
 module.exports = router;

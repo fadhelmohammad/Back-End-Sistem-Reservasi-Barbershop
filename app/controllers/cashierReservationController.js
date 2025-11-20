@@ -4,21 +4,42 @@ const Barber = require("../models/Barber");
 const Schedule = require("../models/Schedule");
 const User = require("../models/User");
 
-// ✅ Cashier can create reservation for walk-in customers
-const createWalkInReservation = async (req, res) => {
+// ✅ SIMPLIFIED: Create walk-in reservation (langsung completed)
+const manageWalkInReservation = async (req, res) => {
   try {
-    const { packageId, barberId, scheduleId, customerName, customerPhone, notes = "" } = req.body;
+    const { 
+      packageId, 
+      barberId, 
+      scheduleId, 
+      customerName, 
+      customerPhone, 
+      customerEmail, 
+      paymentMethod = "cash",
+      notes = "",
+      serviceNotes = ""
+    } = req.body;
+    
     const cashierIdentifier = req.user.userId || req.user.id;
 
-    console.log('🔍 Create Walk-in Reservation:', {
-      packageId, barberId, scheduleId, customerName, customerPhone
+    console.log('🔍 Create Walk-in Reservation (Direct Complete):', {
+      packageId, barberId, scheduleId, customerName, customerPhone, paymentMethod
     });
 
-    // ✅ Validate required fields (hanya nama dan phone)
-    if (!packageId || !barberId || !scheduleId || !customerName || !customerPhone) {
+    // ✅ Validate required fields
+    if (!packageId || !barberId || !scheduleId || !customerName || !customerPhone || !paymentMethod) {
       return res.status(400).json({
         success: false,
-        message: "Package, barber, schedule, customer name, and phone are required"
+        message: "Package, barber, schedule, customer name, phone, and payment method are required for walk-in reservation"
+      });
+    }
+
+    // ✅ Validate payment method
+    const validPaymentMethods = ['cash', 'bank_transfer', 'e_wallet'];
+    if (!validPaymentMethods.includes(paymentMethod)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid payment method. Allowed: cash, bank_transfer, e_wallet",
+        allowedMethods: validPaymentMethods
       });
     }
 
@@ -69,43 +90,57 @@ const createWalkInReservation = async (req, res) => {
       });
     }
 
-    console.log('✅ Validations passed, creating walk-in reservation...');
+    console.log('✅ Validations passed, creating walk-in reservation (direct complete)...');
 
-    // ✅ Create walk-in reservation
+    const completionTime = new Date();
+
+    // ✅ Create walk-in reservation (LANGSUNG COMPLETED)
     const reservation = new Reservation({
       customer: null, // ✅ No customer account for walk-in
       customerName: customerName.trim(),
       customerPhone: customerPhone.trim(),
-      customerEmail: null, // ✅ Email tidak wajib untuk walk-in
-      createdBy: cashier._id, // ✅ Cashier yang membuat
+      customerEmail: customerEmail ? customerEmail.trim() : null,
+      createdBy: cashier._id,
       package: packageId,
       barber: barberId,
       schedule: scheduleId,
       totalPrice: packageExists.price,
       notes: notes.trim(),
-      status: 'confirmed', // ✅ Walk-in langsung confirmed (tidak perlu verifikasi)
-      confirmedBy: cashier._id, // ✅ Auto-confirmed by cashier
-      confirmedAt: new Date(),
-      isWalkIn: true // ✅ Flag untuk walk-in
+      serviceNotes: serviceNotes.trim(),
+      
+      // ✅ LANGSUNG COMPLETED STATUS
+      status: 'completed', // ✅ Walk-in langsung completed
+      confirmedBy: cashier._id,
+      confirmedAt: completionTime,
+      completedBy: cashier._id, // ✅ Cashier yang complete
+      completedAt: completionTime, // ✅ Langsung completed
+      
+      // ✅ PAYMENT INFO
+      paymentMethod: paymentMethod, // ✅ Payment method dari body
+      
+      // ✅ WALK-IN FLAGS
+      isWalkIn: true
     });
 
     // ✅ Save reservation
     const savedReservation = await reservation.save();
 
-    console.log('✅ Walk-in reservation saved:', savedReservation.reservationId);
+    console.log('✅ Walk-in reservation saved (completed):', savedReservation.reservationId);
 
-    // ✅ Update schedule status to booked
+    // ✅ Update schedule status to completed (bukan booked)
     await Schedule.findByIdAndUpdate(scheduleId, { 
-      status: 'booked',
-      reservation: savedReservation._id
+      status: 'completed', // ✅ Langsung completed
+      reservation: savedReservation._id,
+      completedAt: completionTime
     });
 
-    console.log('✅ Schedule updated to booked');
+    console.log('✅ Schedule updated to completed');
 
     // ✅ Populate the saved reservation for response
     await savedReservation.populate([
       { path: 'createdBy', select: 'userId name email role' },
       { path: 'confirmedBy', select: 'userId name email role' },
+      { path: 'completedBy', select: 'userId name email role' },
       { path: 'package', select: 'packageId name price description' },
       { path: 'barber', select: 'barberId name specialization' },
       { path: 'schedule', select: 'scheduleId date timeSlot scheduled_time' }
@@ -113,15 +148,27 @@ const createWalkInReservation = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Walk-in reservation created successfully",
+      message: "Walk-in service completed and payment processed successfully",
       data: {
         reservation: savedReservation,
+        summary: {
+          reservationId: savedReservation.reservationId,
+          customerName: savedReservation.customerName,
+          customerPhone: savedReservation.customerPhone,
+          package: savedReservation.package.name,
+          barber: savedReservation.barber.name,
+          schedule: `${savedReservation.schedule.date} at ${savedReservation.schedule.timeSlot}`,
+          totalPrice: savedReservation.totalPrice,
+          paymentMethod: savedReservation.paymentMethod,
+          serviceNotes: savedReservation.serviceNotes,
+          completedAt: savedReservation.completedAt,
+          completedBy: savedReservation.completedBy.name
+        },
         info: {
           isWalkIn: true,
-          createdBy: savedReservation.createdBy,
-          confirmedBy: savedReservation.confirmedBy,
-          paymentRequired: false, // ✅ Walk-in tidak wajib upload bukti pembayaran
-          autoConfirmed: true
+          directCompletion: true,
+          paymentProcessed: true,
+          scheduleCompleted: true
         }
       }
     });
@@ -130,108 +177,23 @@ const createWalkInReservation = async (req, res) => {
     console.error("Error creating walk-in reservation:", error);
     res.status(500).json({
       success: false,
-      message: "Error creating walk-in reservation",
+      message: "Error processing walk-in service",
       error: error.message
     });
   }
 };
 
-// ✅ Cashier can mark service as completed and handle payment
-const completeService = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { paymentMethod = "cash", serviceNotes } = req.body;
-    const cashierIdentifier = req.user.userId || req.user.id;
-
-    // ✅ Get cashier
-    let cashier;
-    if (typeof cashierIdentifier === 'string' && cashierIdentifier.startsWith('USR-')) {
-      cashier = await User.findOne({ userId: cashierIdentifier, role: 'cashier' }).select('_id userId name');
-    } else {
-      cashier = await User.findOne({ _id: cashierIdentifier, role: 'cashier' }).select('_id userId name');
-    }
-
-    if (!cashier) {
-      return res.status(404).json({
-        success: false,
-        message: "Cashier not found"
-      });
-    }
-
-    const reservation = await Reservation.findById(id)
-      .populate('package')
-      .populate('barber');
-
-    if (!reservation) {
-      return res.status(404).json({
-        success: false,
-        message: "Reservation not found"
-      });
-    }
-
-    // ✅ Check if reservation can be completed
-    if (!['confirmed'].includes(reservation.status)) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot complete service. Invalid status."
-      });
-    }
-
-    // ✅ Update reservation to completed
-    reservation.status = 'completed';
-    reservation.completedAt = new Date();
-    reservation.completedBy = cashier._id;
-    reservation.paymentMethod = paymentMethod;
-    reservation.serviceNotes = serviceNotes || "";
-    await reservation.save();
-
-    // ✅ Update schedule to completed
-    const schedule = await Schedule.findById(reservation.schedule);
-    if (schedule) {
-      schedule.status = 'completed';
-      schedule.completedAt = new Date();
-      await schedule.save();
-    }
-
-    console.log('✅ Service completed:', {
-      reservationId: reservation.reservationId,
-      completedBy: cashier.name,
-      paymentMethod
-    });
-
-    res.status(200).json({
-      success: true,
-      message: "Service completed and payment processed",
-      data: {
-        reservationId: reservation.reservationId,
-        customerName: reservation.customerName,
-        package: reservation.package.name,
-        totalPrice: reservation.totalPrice,
-        paymentMethod: paymentMethod,
-        completedAt: reservation.completedAt,
-        completedBy: {
-          _id: cashier._id,
-          userId: cashier.userId,
-          name: cashier.name
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error("Error completing service:", error);
-    res.status(500).json({
-      success: false,
-      message: "Error completing service",
-      error: error.message
-    });
-  }
-};
-
-// ✅ Get cashier's walk-in reservations
+// ✅ Get cashier's walk-in reservations (updated for completed status)
 const getCashierWalkInReservations = async (req, res) => {
   try {
     const cashierIdentifier = req.user.userId || req.user.id;
-    const { status, page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+    const { 
+      status = 'completed', // ✅ Default to completed since walk-ins are auto-completed
+      page = 1, 
+      limit = 10, 
+      sortBy = 'completedAt', // ✅ Sort by completion time
+      sortOrder = 'desc' 
+    } = req.query;
 
     // ✅ Get cashier
     let cashier;
@@ -248,10 +210,13 @@ const getCashierWalkInReservations = async (req, res) => {
       });
     }
 
-    // ✅ Build query
+    // ✅ Build query - filter by cashier's walk-in reservations
     let query = {
-      createdBy: cashier._id,
-      isWalkIn: true // ✅ Only walk-in reservations
+      $or: [
+        { createdBy: cashier._id }, // ✅ Created by this cashier
+        { completedBy: cashier._id } // ✅ Or completed by this cashier
+      ],
+      isWalkIn: true
     };
 
     // ✅ Filter by status if provided
@@ -273,6 +238,7 @@ const getCashierWalkInReservations = async (req, res) => {
       .populate('package', 'packageId name price')
       .populate('barber', 'barberId name specialization')
       .populate('schedule', 'scheduleId date timeSlot scheduled_time')
+      .populate('createdBy', 'userId name role')
       .populate('confirmedBy', 'userId name role')
       .populate('completedBy', 'userId name role')
       .sort(sort)
@@ -281,32 +247,49 @@ const getCashierWalkInReservations = async (req, res) => {
 
     const totalReservations = await Reservation.countDocuments(query);
 
-    // ✅ Format response
+    // ✅ Format response with enhanced walk-in info
     const formattedReservations = reservations.map(reservation => ({
       _id: reservation._id,
       reservationId: reservation.reservationId,
       status: reservation.status,
       customerName: reservation.customerName,
       customerPhone: reservation.customerPhone,
+      customerEmail: reservation.customerEmail,
       notes: reservation.notes,
       serviceNotes: reservation.serviceNotes,
       totalPrice: reservation.totalPrice,
       paymentMethod: reservation.paymentMethod,
       isWalkIn: reservation.isWalkIn,
       
-      // Service details
+      // ✅ Enhanced service details
       package: reservation.package,
       barber: reservation.barber,
       schedule: reservation.schedule,
+      
+      // ✅ Staff info
+      createdBy: reservation.createdBy,
       confirmedBy: reservation.confirmedBy,
       completedBy: reservation.completedBy,
       
-      // Timestamps
+      // ✅ Timestamps with duration calculation
       createdAt: reservation.createdAt,
       confirmedAt: reservation.confirmedAt,
       completedAt: reservation.completedAt,
-      updatedAt: reservation.updatedAt
+      updatedAt: reservation.updatedAt,
+      serviceDuration: reservation.completedAt && reservation.createdAt 
+        ? Math.round((new Date(reservation.completedAt) - new Date(reservation.createdAt)) / 1000 / 60) // minutes
+        : null
     }));
+
+    // ✅ Enhanced summary with payment breakdown
+    const paymentSummary = formattedReservations.reduce((acc, reservation) => {
+      if (reservation.paymentMethod) {
+        acc[reservation.paymentMethod] = (acc[reservation.paymentMethod] || 0) + reservation.totalPrice;
+      }
+      return acc;
+    }, {});
+
+    const totalRevenue = formattedReservations.reduce((sum, reservation) => sum + reservation.totalPrice, 0);
 
     res.status(200).json({
       success: true,
@@ -322,7 +305,14 @@ const getCashierWalkInReservations = async (req, res) => {
       },
       summary: {
         total: totalReservations,
-        currentPageCount: formattedReservations.length
+        currentPageCount: formattedReservations.length,
+        totalRevenue: totalRevenue,
+        paymentBreakdown: paymentSummary,
+        averageServiceTime: formattedReservations.length > 0 
+          ? Math.round(formattedReservations
+              .filter(r => r.serviceDuration)
+              .reduce((sum, r) => sum + r.serviceDuration, 0) / formattedReservations.length)
+          : 0
       }
     });
 
@@ -337,7 +327,6 @@ const getCashierWalkInReservations = async (req, res) => {
 };
 
 module.exports = {
-  createWalkInReservation,
-  completeService,
+  manageWalkInReservation,
   getCashierWalkInReservations
 };
