@@ -17,6 +17,7 @@ const profileRoutes = require('./app/routes/profileRoutes');
 
 // Import cron jobs
 const ScheduleJobs = require("./app/jobs/scheduleJobs");
+const { startPaymentTimeoutChecker } = require('./app/services/paymentTimeoutService');
 
 const cors = require("cors");
 
@@ -51,7 +52,11 @@ app.use('/profile', profileRoutes); // Universal profile endpoint
 // Initialize cron jobs
 ScheduleJobs.init();
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log('⏰ Scheduled jobs are active');
+// Start server
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`✅ Environment: ${process.env.NODE_ENV}`);
+  
+  // ✅ Start payment timeout checker
+  startPaymentTimeoutChecker();
 });

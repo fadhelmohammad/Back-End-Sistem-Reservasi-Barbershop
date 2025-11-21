@@ -12,7 +12,8 @@ const {
   getConfirmedReservations,
   updateReservationStatus,
   cancelReservation,
-  deleteReservation
+  deleteReservation,
+  checkPaymentDeadline
 } = require("../controllers/reservationController");
 
 const {
@@ -33,6 +34,9 @@ router.get("/schedules/:barberId", getAvailableSchedules);
 router.get("/my-reservations", authMiddleware, getUserReservations);
 router.post("/", authMiddleware, createReservation);
 router.patch("/:id/cancel", authMiddleware, cancelReservation);
+
+// ✅ Check payment deadline (CUSTOMER ACCESS) - FIXED: use authMiddleware
+router.get('/check-deadline/:reservationId', authMiddleware, checkPaymentDeadline);
 
 // Admin & Cashier routes (ADMIN or CASHIER ACCESS)
 router.get("/", authMiddleware, checkRole(['ADMIN', 'cashier']), getAllReservations);

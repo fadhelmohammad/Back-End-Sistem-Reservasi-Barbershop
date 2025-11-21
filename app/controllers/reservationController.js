@@ -276,6 +276,10 @@ const createReservation = async (req, res) => {
       status: 'pending'
     });
 
+    // ✅ Calculate payment deadline
+    const createdAt = new Date();
+    const paymentDeadline = new Date(createdAt.getTime() + 10 * 60 * 1000); // 10 minutes from now
+
     // Save reservation
     const savedReservation = await reservation.save();
 
@@ -283,7 +287,8 @@ const createReservation = async (req, res) => {
       reservationId: savedReservation.reservationId,
       _id: savedReservation._id,
       status: savedReservation.status,
-      totalPrice: savedReservation.totalPrice
+      totalPrice: savedReservation.totalPrice,
+      paymentDeadline: paymentDeadline
     });
 
     // Update schedule status to booked
@@ -322,7 +327,13 @@ const createReservation = async (req, res) => {
         reservation: savedReservation,
         info: {
           createdBy: savedReservation.createdBy,
-          isManualBooking: true // ✅ Always manual
+          isManualBooking: true
+        },
+        // ✅ ADD PAYMENT DEADLINE INFO
+        paymentInfo: {
+          deadline: paymentDeadline,
+          timeLimit: '10 minutes',
+          warning: 'Please upload payment proof within 10 minutes or your reservation will be automatically cancelled'
         }
       }
     });
@@ -746,9 +757,22 @@ const getUserReservations = async (req, res) => {
       paymentMap[payment.reservationId.toString()] = payment;
     });
 
-    // ✅ Format response with payment info
+    // ✅ Format response with payment deadline info
     const formattedReservations = reservations.map(reservation => {
       const payment = paymentMap[reservation._id.toString()];
+      
+      // ✅ Calculate remaining time for pending reservations
+      let paymentDeadline = null;
+      let remainingMinutes = null;
+      let isExpiringSoon = false;
+      
+      if (reservation.status === 'pending' && !payment) {
+        paymentDeadline = new Date(reservation.createdAt.getTime() + 10 * 60 * 1000);
+        const now = new Date();
+        const remainingMs = paymentDeadline - now;
+        remainingMinutes = Math.floor(remainingMs / 60000);
+        isExpiringSoon = remainingMinutes <= 5 && remainingMinutes > 0;
+      }
       
       return {
         _id: reservation._id,
@@ -767,13 +791,13 @@ const getUserReservations = async (req, res) => {
         schedule: reservation.schedule,
         confirmedBy: reservation.confirmedBy,
         
-        // ✅ Payment information (NEW)
+        // Payment information
         payment: payment ? {
           paymentId: payment.paymentId,
           amount: payment.amount,
           paymentMethod: payment.paymentMethod,
-          status: payment.status, // ✅ pending, verified, rejected
-          verificationNote: payment.verificationNote, // ✅ Notes from cashier
+          status: payment.status,
+          verificationNote: payment.verificationNote,
           uploadedAt: payment.uploadedAt,
           verifiedAt: payment.verifiedAt,
           rejectedAt: payment.rejectedAt,
@@ -784,7 +808,15 @@ const getUserReservations = async (req, res) => {
           } : null
         } : null,
         
-        // ✅ Overall status descriptions (NEW)
+        // ✅ Payment deadline info
+        paymentDeadline: paymentDeadline,
+        remainingMinutes: remainingMinutes,
+        isExpiringSoon: isExpiringSoon,
+        deadlineWarning: isExpiringSoon ? 
+          `Only ${remainingMinutes} minutes left to upload payment!` : 
+          (remainingMinutes > 0 ? `${remainingMinutes} minutes remaining` : null),
+        
+        // Overall status descriptions
         finalStatus: getFinalStatus(reservation.status, payment?.status),
         statusDescription: getStatusDescription(reservation.status, payment?.status),
         canUploadPayment: reservation.status === 'pending' && (!payment || payment.status === 'rejected'),
@@ -1069,7 +1101,14 @@ const deleteReservation = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const reservation = await Reservation.findById(id);
+    debugReservation('deleteReservation - START', {
+      id,
+      user: req.user
+    });
+
+    const reservation = await Reservation.findById(id)
+      .populate('schedule', 'timeSlot date');
+
     if (!reservation) {
       return res.status(404).json({
         success: false,
@@ -1077,21 +1116,200 @@ const deleteReservation = async (req, res) => {
       });
     }
 
-    // Make schedule available again if reservation is deleted
-    await Schedule.findByIdAndUpdate(reservation.schedule, { 
-      status: "available" 
+    debugReservation('deleteReservation - FOUND', {
+      reservationId: reservation.reservationId,
+      status: reservation.status,
+      schedule: reservation.schedule
     });
 
+    // Free up schedule if it was booked
+    if (reservation.schedule && reservation.status === 'pending') {
+      await Schedule.findByIdAndUpdate(reservation.schedule._id, {
+        status: 'available',
+        reservation: null
+      });
+      debugReservation('deleteReservation - SCHEDULE_FREED', {
+        scheduleId: reservation.schedule._id,
+        timeSlot: reservation.schedule.timeSlot
+      });
+    }
+
+    // Delete associated payment if exists
+    if (reservation.paymentId) {
+      await Payment.findOneAndDelete({ reservationId: reservation._id });
+      debugReservation('deleteReservation - PAYMENT_DELETED', {
+        paymentId: reservation.paymentId
+      });
+    }
+
+    // Delete reservation
     await Reservation.findByIdAndDelete(id);
+
+    debugReservation('deleteReservation - SUCCESS', {
+      deletedReservationId: reservation.reservationId
+    });
 
     res.status(200).json({
       success: true,
-      message: "Reservation deleted successfully"
+      message: "Reservation deleted successfully",
+      data: {
+        _id: reservation._id,
+        reservationId: reservation.reservationId,
+        status: reservation.status
+      }
     });
+
   } catch (error) {
+    debugReservation('deleteReservation - ERROR', {
+      message: error.message,
+      stack: error.stack
+    });
+
+    console.error('Delete reservation error:', error);
     res.status(500).json({
       success: false,
       message: "Error deleting reservation",
+      error: error.message
+    });
+  }
+};
+
+// ✅ NEW FUNCTION: Check payment deadline status
+const checkPaymentDeadline = async (req, res) => {
+  try {
+    const { reservationId } = req.params;
+    
+    debugReservation('checkPaymentDeadline - START', {
+      reservationId,
+      user: req.user
+    });
+
+    const reservation = await Reservation.findById(reservationId)
+      .select('createdAt status paymentId schedule')
+      .populate('schedule', 'timeSlot date');
+
+    if (!reservation) {
+      return res.status(404).json({
+        success: false,
+        message: "Reservation not found"
+      });
+    }
+
+    debugReservation('checkPaymentDeadline - FOUND', {
+      reservationId: reservation._id,
+      status: reservation.status,
+      hasPayment: !!reservation.paymentId,
+      createdAt: reservation.createdAt
+    });
+
+    // Check if reservation is still pending and no payment
+    if (reservation.status === 'pending' && !reservation.paymentId) {
+      const createdAt = new Date(reservation.createdAt);
+      const deadline = new Date(createdAt.getTime() + 10 * 60 * 1000); // 10 minutes
+      const now = new Date();
+      const remainingMs = deadline - now;
+      const remainingMinutes = Math.floor(remainingMs / 60000);
+      const remainingSeconds = Math.floor((remainingMs % 60000) / 1000);
+
+      debugReservation('checkPaymentDeadline - CALCULATING', {
+        createdAt: createdAt.toISOString(),
+        deadline: deadline.toISOString(),
+        now: now.toISOString(),
+        remainingMs,
+        remainingMinutes,
+        remainingSeconds
+      });
+
+      // Check if expired
+      if (remainingMs <= 0) {
+        debugReservation('checkPaymentDeadline - EXPIRED', {
+          expiredBy: Math.abs(remainingMs) + 'ms'
+        });
+
+        // Auto-cancel if backend checker hasn't run yet
+        reservation.status = 'cancelled';
+        reservation.cancelledAt = now;
+        reservation.cancelReason = 'Payment timeout - No payment uploaded within 10 minutes';
+        await reservation.save();
+
+        // Free schedule
+        if (reservation.schedule) {
+          await Schedule.findByIdAndUpdate(reservation.schedule._id, {
+            status: 'available',
+            reservation: null
+          });
+          
+          debugReservation('checkPaymentDeadline - SCHEDULE_FREED', {
+            scheduleId: reservation.schedule._id,
+            timeSlot: reservation.schedule.timeSlot
+          });
+        }
+
+        return res.status(200).json({
+          success: false,
+          isExpired: true,
+          message: "Payment deadline has expired. Reservation cancelled.",
+          data: {
+            status: 'cancelled',
+            expiredAt: deadline,
+            cancelledAt: now
+          }
+        });
+      }
+
+      // Still valid
+      debugReservation('checkPaymentDeadline - STILL_VALID', {
+        remainingMinutes,
+        remainingSeconds,
+        isExpiringSoon: remainingMinutes < 3
+      });
+
+      return res.status(200).json({
+        success: true,
+        isExpired: false,
+        message: "Payment deadline is still active",
+        data: {
+          deadline: deadline,
+          remainingTime: {
+            minutes: remainingMinutes,
+            seconds: remainingSeconds,
+            totalMs: remainingMs,
+            formatted: `${remainingMinutes}:${String(remainingSeconds).padStart(2, '0')}`
+          },
+          isExpiringSoon: remainingMinutes < 3,
+          isUrgent: remainingMinutes < 1,
+          status: reservation.status
+        }
+      });
+    }
+
+    // Reservation already has payment or not pending
+    debugReservation('checkPaymentDeadline - NO_DEADLINE_NEEDED', {
+      status: reservation.status,
+      hasPayment: !!reservation.paymentId
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Reservation status checked",
+      data: {
+        status: reservation.status,
+        hasPayment: !!reservation.paymentId,
+        noDeadline: true,
+        reason: reservation.status !== 'pending' ? 'Reservation is not pending' : 'Payment already uploaded'
+      }
+    });
+
+  } catch (error) {
+    debugReservation('checkPaymentDeadline - ERROR', {
+      message: error.message,
+      stack: error.stack
+    });
+
+    console.error('Check deadline error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Error checking payment deadline",
       error: error.message
     });
   }
@@ -1142,6 +1360,7 @@ module.exports = {
   updateReservationStatus,
   cancelReservation,
   deleteReservation,
-  getFinalStatus, // ✅ Export helper functions
+  checkPaymentDeadline, // ✅ Now properly defined
+  getFinalStatus,
   getStatusDescription
 };
