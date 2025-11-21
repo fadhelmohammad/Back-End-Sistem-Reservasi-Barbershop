@@ -2,6 +2,173 @@ const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const mongoose = require("mongoose");
 
+// Get cashier profile (for logged-in cashier)
+const getCashierProfile = async (req, res) => {
+  try {
+    const userIdentifier = req.user.userId || req.user.id;
+    
+    // Find cashier by userId or _id
+    let cashier;
+    if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
+      cashier = await User.findOne({ userId: userIdentifier, role: 'cashier' })
+        .select('-password');
+    } else {
+      cashier = await User.findOne({ _id: userIdentifier, role: 'cashier' })
+        .select('-password');
+    }
+
+    if (!cashier) {
+      return res.status(404).json({
+        success: false,
+        message: "Cashier profile not found"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Cashier profile retrieved successfully",
+      data: cashier
+    });
+
+  } catch (error) {
+    console.error("Error getting cashier profile:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error retrieving cashier profile",
+      error: error.message
+    });
+  }
+};
+
+// Update cashier own profile
+const updateCashierProfile = async (req, res) => {
+  try {
+    const userIdentifier = req.user.userId || req.user.id;
+    const { name, email, phone } = req.body;
+
+    // Find cashier
+    let cashier;
+    if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
+      cashier = await User.findOne({ userId: userIdentifier, role: 'cashier' });
+    } else {
+      cashier = await User.findOne({ _id: userIdentifier, role: 'cashier' });
+    }
+
+    if (!cashier) {
+      return res.status(404).json({
+        success: false,
+        message: "Cashier profile not found"
+      });
+    }
+
+    // Check if email is being changed and already exists
+    if (email && email.toLowerCase() !== cashier.email) {
+      const existingUser = await User.findOne({ 
+        email: email.toLowerCase(),
+        _id: { $ne: cashier._id }
+      });
+      
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: "Email already in use"
+        });
+      }
+    }
+
+    // Update fields
+    if (name) cashier.name = name.trim();
+    if (email) cashier.email = email.toLowerCase().trim();
+    if (phone) cashier.phone = phone.trim();
+
+    await cashier.save();
+
+    // Remove password from response
+    const cashierResponse = cashier.toObject();
+    delete cashierResponse.password;
+
+    res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      data: cashierResponse
+    });
+
+  } catch (error) {
+    console.error("Error updating cashier profile:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error updating profile",
+      error: error.message
+    });
+  }
+};
+
+// Change cashier own password
+const changeCashierPassword = async (req, res) => {
+  try {
+    const userIdentifier = req.user.userId || req.user.id;
+    const { currentPassword, newPassword } = req.body;
+
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Current password and new password are required"
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "New password must be at least 6 characters long"
+      });
+    }
+
+    // Find cashier
+    let cashier;
+    if (typeof userIdentifier === 'string' && userIdentifier.startsWith('USR-')) {
+      cashier = await User.findOne({ userId: userIdentifier, role: 'cashier' });
+    } else {
+      cashier = await User.findOne({ _id: userIdentifier, role: 'cashier' });
+    }
+
+    if (!cashier) {
+      return res.status(404).json({
+        success: false,
+        message: "Cashier not found"
+      });
+    }
+
+    // Verify current password
+    const isPasswordValid = await bcrypt.compare(currentPassword, cashier.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: "Current password is incorrect"
+      });
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    cashier.password = await bcrypt.hash(newPassword, salt);
+
+    await cashier.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Password changed successfully"
+    });
+
+  } catch (error) {
+    console.error("Error changing cashier password:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error changing password",
+      error: error.message
+    });
+  }
+};
+
 // Get all cashiers
 const getAllCashiers = async (req, res) => {
   try {
@@ -322,6 +489,12 @@ const updateCashierPassword = async (req, res) => {
 };
 
 module.exports = {
+  // Profile functions (for logged-in cashier)
+  getCashierProfile,
+  updateCashierProfile,
+  changeCashierPassword,
+  
+  // Admin functions (manage all cashiers)
   getAllCashiers,
   getCashierById,
   createCashier,
