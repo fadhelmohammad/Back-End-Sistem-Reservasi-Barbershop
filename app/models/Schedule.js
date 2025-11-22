@@ -79,4 +79,6 @@ scheduleSchema.index({ status: 1, scheduled_time: 1 });
 scheduleSchema.index({ barber: 1, status: 1 });
 scheduleSchema.index({ barber: 1, date: 1 });
 
-module.exports = mongoose.model('Schedule', scheduleSchema);
+// ✅ Export pattern
+delete mongoose.models.Schedule;
+module.exports = mongoose.model("Schedule", scheduleSchema);

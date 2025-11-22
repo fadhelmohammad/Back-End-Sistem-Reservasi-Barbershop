@@ -44,7 +44,7 @@ const getAllReservationHistory = async (req, res) => {
     const skip = (page - 1) * limit;
     const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
 
-    console.log('🔍 DEBUG - Query:', query); // Debug log
+    console.log('🔍 DEBUG - Query:', query);
 
     const reservations = await Reservation.find(query)
       .populate('package', 'name price description services duration')
@@ -56,7 +56,7 @@ const getAllReservationHistory = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
-    console.log('🔍 DEBUG - Found reservations:', reservations.length); // Debug log
+    console.log('🔍 DEBUG - Found reservations:', reservations.length);
 
     // Get payment data for these reservations
     const reservationIds = reservations.map(r => r._id);
@@ -75,7 +75,18 @@ const getAllReservationHistory = async (req, res) => {
 
     const totalReservations = await Reservation.countDocuments(query);
 
-    // Format response untuk admin history
+    // ✅ Count langsung dari database
+    const completedCount = await Reservation.countDocuments({
+      ...query,
+      status: 'completed'
+    });
+    
+    const cancelledCount = await Reservation.countDocuments({
+      ...query,
+      status: 'cancelled'
+    });
+
+    // ✅ FORMAT RESPONSE
     const formattedHistory = reservations.map(reservation => {
       const payment = paymentMap[reservation._id.toString()];
       
@@ -155,10 +166,7 @@ const getAllReservationHistory = async (req, res) => {
       };
     });
 
-    // ✅ Simplified count breakdown
-    const completedCount = formattedHistory.filter(r => r.status === 'completed').length;
-    const cancelledCount = formattedHistory.filter(r => r.status === 'cancelled').length;
-
+    // ✅ Response TANPA pagination
     res.status(200).json({
       success: true,
       message: "All reservation history retrieved successfully",
@@ -297,6 +305,21 @@ const getCashierReservationHistory = async (req, res) => {
 
     const totalReservations = await Reservation.countDocuments(finalQuery);
 
+    // ✅ Count dari database
+    const completedCount = await Reservation.countDocuments({
+      $and: [
+        finalQuery,
+        { status: 'completed' }
+      ]
+    });
+    
+    const cancelledCount = await Reservation.countDocuments({
+      $and: [
+        finalQuery,
+        { status: 'cancelled' }
+      ]
+    });
+
     // ✅ Format response
     const formattedHistory = reservations.map(reservation => {
       const payment = paymentMap[reservation._id.toString()];
@@ -387,10 +410,7 @@ const getCashierReservationHistory = async (req, res) => {
       };
     });
 
-    // ✅ Simplified summary - hanya basic counts
-    const completedCount = formattedHistory.filter(r => r.status === 'completed').length;
-    const cancelledCount = formattedHistory.filter(r => r.status === 'cancelled').length;
-
+    // ✅ Response TANPA pagination
     res.status(200).json({
       success: true,
       message: "Cashier reservation history retrieved successfully",
@@ -490,6 +510,17 @@ const getCustomerReservationHistory = async (req, res) => {
 
     const totalReservations = await Reservation.countDocuments(query);
 
+    // ✅ Count dari database
+    const completedCount = await Reservation.countDocuments({
+      ...query,
+      status: 'completed'
+    });
+    
+    const cancelledCount = await Reservation.countDocuments({
+      ...query,
+      status: 'cancelled'
+    });
+
     // Format response for customer view
     const formattedHistory = reservations.map(reservation => {
       const payment = paymentMap[reservation._id.toString()];
@@ -528,10 +559,7 @@ const getCustomerReservationHistory = async (req, res) => {
       };
     });
 
-    // Summary
-    const completedCount = formattedHistory.filter(r => r.status === 'completed').length;
-    const cancelledCount = formattedHistory.filter(r => r.status === 'cancelled').length;
-
+    // ✅ Response TANPA pagination
     res.status(200).json({
       success: true,
       message: "Customer reservation history retrieved successfully",
@@ -590,7 +618,7 @@ const getStatusDescription = (reservationStatus, paymentStatus) => {
 module.exports = {
   getAllReservationHistory,
   getCashierReservationHistory,
-  getCustomerReservationHistory, // ✅ Added
+  getCustomerReservationHistory,
   getFinalReservationStatus,
   getFinalStatus,
   getStatusDescription

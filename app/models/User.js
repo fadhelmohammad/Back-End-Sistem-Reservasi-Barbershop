@@ -68,4 +68,6 @@ userSchema.pre('save', async function(next) {
   next();
 });
 
+// ✅ Export pattern
+delete mongoose.models.User; // Clear cache
 module.exports = mongoose.model("User", userSchema);

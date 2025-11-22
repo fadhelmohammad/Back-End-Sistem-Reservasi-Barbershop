@@ -77,6 +77,7 @@ packageSchema.pre('save', async function(next) {
   next();
 });
 
-// FIX
-module.exports = mongoose.models.Package ||
-mongoose.model("Package", packageSchema);
+
+
+delete mongoose.models.Package;
+module.exports = mongoose.model("Package", packageSchema);

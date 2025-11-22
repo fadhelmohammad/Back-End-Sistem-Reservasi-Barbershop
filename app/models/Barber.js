@@ -55,4 +55,6 @@ barberSchema.pre('save', async function(next) {
   next();
 });
 
+// ✅ Export pattern
+delete mongoose.models.Barber;
 module.exports = mongoose.model("Barber", barberSchema);

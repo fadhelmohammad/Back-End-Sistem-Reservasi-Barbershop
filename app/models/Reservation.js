@@ -134,4 +134,6 @@ reservationSchema.index({ barber: 1, status: 1 });
 reservationSchema.index({ schedule: 1 });
 reservationSchema.index({ createdAt: -1 });
 
-module.exports = mongoose.model('Reservation', reservationSchema);
+// ✅ Export pattern
+delete mongoose.models.Reservation;
+module.exports = mongoose.model("Reservation", reservationSchema);
