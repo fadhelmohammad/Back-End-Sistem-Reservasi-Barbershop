@@ -7,7 +7,7 @@ const User = require("../app/models/User");
 const Barber = require("../app/models/Barber");
 const Schedule = require("../app/models/Schedule");
 const connectDB = require("../app/config/db");
-
+//
 const viewAllData = async () => {
   try {
     console.log("🔄 Connecting to MongoDB...");
